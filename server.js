@@ -103,7 +103,7 @@ app.post('/clover-charge', async (req, res) => {
 
   try {
     const body = { amount, source, currency, capture: true };
-    if (orderId) body.orderId = orderId;
+    if (orderId) body.order = { id: orderId };
     const r = await fetch('https://scl.clover.com/v1/charges', {
       method: 'POST',
       headers: {

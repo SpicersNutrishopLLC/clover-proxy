@@ -1,1 +1,17 @@
-{"name":"clover-proxy","version":"1.0.0","description":"Proxy server for MealPrep OS","main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"cors":"^2.8.5","express":"^4.18.2","node-fetch":"^2.7.0","stripe":"^14.0.0"},"engines":{"node":"18.x"}} 
+{
+  "name": "clover-proxy",
+  "version": "1.0.0",
+  "description": "Proxy server for MealPrep OS to connect to Clover POS API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

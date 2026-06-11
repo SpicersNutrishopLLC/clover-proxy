@@ -89,17 +89,25 @@ app.get('/clover-pakms', async (req, res) => {
 
 // ── POST Clover Ecommerce charge (processes payment through Clover) ──
 app.post('/clover-charge', async (req, res) => {
-  const token = req.headers['x-clover-token'];
-  if (!token) return res.status(401).json({ error: 'Missing x-clover-token header' });
-  const { amount, source, orderId, currency = 'USD' } = req.body;
+  const { amount, source, orderId, currency = 'USD', location } = req.body;
   if (!amount || !source) return res.status(400).json({ error: 'Missing amount or source' });
+
+  // Select private ecomm token by location
+  const ecommTokenMap = {
+    gulch:     process.env.CLOVER_ECOMM_GULCH,
+    franklin:  process.env.CLOVER_ECOMM_FRANKLIN,
+    henderson: process.env.CLOVER_ECOMM_HENDERSON,
+  };
+  const ecommToken = ecommTokenMap[location];
+  if (!ecommToken) return res.status(400).json({ error: `No ecomm token configured for location: ${location}` });
+
   try {
     const body = { amount, source, currency, capture: true };
     if (orderId) body.orderId = orderId;
     const r = await fetch('https://scl.clover.com/v1/charges', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${ecommToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(body)

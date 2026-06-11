@@ -89,7 +89,7 @@ app.get('/clover-pakms', async (req, res) => {
 
 // ── POST Clover Ecommerce charge (processes payment through Clover) ──
 app.post('/clover-charge', async (req, res) => {
-  const { amount, source, orderId, currency = 'USD', location } = req.body;
+  const { amount, source, orderId, currency = 'USD', location, merchantId } = req.body;
   if (!amount || !source) return res.status(400).json({ error: 'Missing amount or source' });
 
   // Select private ecomm token by location
@@ -104,15 +104,20 @@ app.post('/clover-charge', async (req, res) => {
   try {
     const body = { amount, source, currency, capture: true };
     if (orderId) body.order = { id: orderId };
+    const headers = {
+      'Authorization': `Bearer ${ecommToken}`,
+      'Content-Type': 'application/json',
+    };
+    if (merchantId) headers['X-Clover-Merchant-Id'] = merchantId;
+
+    console.log(`Charging ${amount} for location ${location}, orderId ${orderId}`);
     const r = await fetch('https://scl.clover.com/v1/charges', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${ecommToken}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify(body)
     });
     const data = await r.json();
+    console.log(`Charge response ${r.status}:`, JSON.stringify(data).substring(0, 200));
     res.status(r.status).json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

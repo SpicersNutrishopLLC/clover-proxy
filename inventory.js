@@ -9,19 +9,21 @@
  *   FRANKLIN_MERCHANT_ID, FRANKLIN_TOKEN
  *   GULCH_MERCHANT_ID,    GULCH_TOKEN
  *   HENDERSON_MERCHANT_ID, HENDERSON_TOKEN
- *   INVENTORY_PASSWORD   – password staff type into the dashboard
+ *   INVENTORY_PASSWORD   – first admin password (account "admin"), used only on first run
  *   SESSION_SECRET       – long random string used to sign logins
+ *   DATABASE_URL         – Postgres (employees, counts, change history)
  * Optional:
  *   ALLOWED_ORIGINS      – comma list of sites allowed to call the API
  *   CLOVER_BASE          – defaults to https://api.clover.com
  *   CACHE_SECONDS        – how long a sync is reused (default 30)
  */
 const express = require('express');
-const crypto = require('node:crypto');
+const db = require('./db');
+const users = require('./users');
+const { countsRouter } = require('./counts');
 
 const CLOVER_BASE = (process.env.CLOVER_BASE || 'https://api.clover.com').replace(/\/+$/, '');
 const CACHE_MS = (Number(process.env.CACHE_SECONDS) || 30) * 1000;
-const SESSION_HOURS = 12;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
   'https://nstninventory.web.app,https://nstninventory.firebaseapp.com')
   .split(',').map(s => s.trim()).filter(Boolean);
@@ -120,6 +122,11 @@ async function loadStore(store) {
   return { items, categories };
 }
 
+async function fetchStoreItems(store) {
+  const items = await fetchPaged(store, `/v3/merchants/${store.merchant}/items`, { expand: 'itemStock' });
+  return items.map(slimItem);
+}
+
 function slimItem(i) {
   return {
     id: i.id,
@@ -201,39 +208,6 @@ async function getSnapshot(fresh) {
 }
 const invalidate = () => { cache = null; };
 
-/* ── Auth (password -> signed, expiring token) ── */
-function sign(payload) {
-  return crypto.createHmac('sha256', process.env.SESSION_SECRET).update(payload).digest('base64url');
-}
-function issueToken() {
-  const exp = Date.now() + SESSION_HOURS * 3600e3;
-  const payload = Buffer.from(JSON.stringify({ exp })).toString('base64url');
-  return { token: `${payload}.${sign(payload)}`, expiresAt: exp };
-}
-function verifyToken(tok) {
-  if (typeof tok !== 'string') return false;
-  const [payload, sig] = tok.split('.');
-  if (!payload || !sig) return false;
-  const good = Buffer.from(sign(payload));
-  const given = Buffer.from(sig);
-  if (good.length !== given.length || !crypto.timingSafeEqual(good, given)) return false;
-  try { return JSON.parse(Buffer.from(payload, 'base64url').toString()).exp > Date.now(); }
-  catch { return false; }
-}
-function passwordMatches(given) {
-  const a = crypto.createHash('sha256').update(String(given || '')).digest();
-  const b = crypto.createHash('sha256').update(process.env.INVENTORY_PASSWORD).digest();
-  return crypto.timingSafeEqual(a, b);
-}
-const loginAttempts = new Map(); // ip -> {count, resetAt}
-function loginAllowed(ip) {
-  const now = Date.now();
-  const rec = loginAttempts.get(ip);
-  if (!rec || rec.resetAt < now) { loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60e3 }); return true; }
-  rec.count++;
-  return rec.count <= 10;
-}
-
 /* ── Validation helpers ── */
 class BadRequest extends Error { constructor(m) { super(m); this.status = 400; } }
 function toCents(v, field) {
@@ -303,11 +277,30 @@ async function createInStore(store, spec, snapshot) {
   };
 }
 
+/* ── Change history ── */
+function findItem(snap, storeId, itemId) {
+  for (const p of snap?.products || []) if (p.stores[storeId]?.id === itemId) return p.stores[storeId];
+  return null;
+}
+async function logEdits(userId, storeId, itemId, before, saved, source, created) {
+  const fields = ['price', 'cost', 'qty'].filter(f => saved[f] !== undefined);
+  const ref = created || before || {};
+  for (const f of fields) {
+    try {
+      await db.q(`INSERT INTO audit (user_id, store, item_id, item_name, field, before_val, after_val, unit_cost, unit_price, source)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [userId, storeId, itemId, (before?.name || created?.name || '').trim() || null, f,
+         before ? before[f] ?? null : null, saved[f],
+         saved.cost ?? ref.cost ?? null, saved.price ?? ref.price ?? null, source]);
+    } catch (e) { console.error('[audit]', e.message); }
+  }
+}
+
 /* ── Router ── */
 function inventoryRouter() {
   const missing = [
     ...STORES.flatMap(s => [`${s.env}_MERCHANT_ID`, `${s.env}_TOKEN`]),
-    'INVENTORY_PASSWORD', 'SESSION_SECRET',
+    'INVENTORY_PASSWORD', 'SESSION_SECRET', 'DATABASE_URL',
   ].filter(k => !process.env[k]);
   const router = express.Router();
 
@@ -317,7 +310,7 @@ function inventoryRouter() {
       res.set({
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
         'Access-Control-Max-Age': '86400',
         Vary: 'Origin',
       });
@@ -336,18 +329,23 @@ function inventoryRouter() {
     return router;
   }
 
-  router.post('/login', (req, res) => {
-    if (!loginAllowed(req.ip)) return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
-    if (!passwordMatches(req.body?.password)) return res.status(401).json({ error: 'Wrong password' });
-    loginAttempts.delete(req.ip);
-    res.json(issueToken());
-  });
+  // Database setup runs once at start; requests wait for it.
+  const counts = countsRouter({ STORES, storeFor, getSnapshot, fetchStoreItems, setStock, invalidate });
+  const ready = (async () => {
+    await db.migrate();
+    await users.bootstrap();
+    await counts.resume();
+  })();
+  ready.catch(e => console.error('[inventory] database setup failed:', e.message));
+  router.use((req, res, next) => ready.then(() => next(), e => next(Object.assign(new Error(`Database unavailable: ${e.message}`), { status: 503 }))));
 
-  router.use((req, res, next) => {
-    const tok = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    if (!verifyToken(tok)) return res.status(401).json({ error: 'Please sign in again' });
-    next();
-  });
+  router.use(users.loginRouter());
+  router.use(users.authenticate);
+  router.use(users.userRouter());
+  router.use(counts.router);
+
+  // Everything below is admin-only: prices, costs, edits, new products.
+  router.use(users.requireAdmin);
 
   router.get('/inventory', async (req, res, next) => {
     try {
@@ -374,8 +372,10 @@ function inventoryRouter() {
         if (c.name !== undefined) fields.name = cleanText(c.name, 'name', 127, true);
         return { store, itemId: c.itemId, fields, qty: toQty(c.qty) };
       });
+      const snap = await getSnapshot(false);
       const results = await Promise.all(plan.map(async p => {
         const out = { store: p.store.id, itemId: p.itemId, ok: true, errors: [], saved: {} };
+        const before = findItem(snap, p.store.id, p.itemId);
         if (Object.keys(p.fields).length) {
           try {
             await clover(p.store, 'POST', `/v3/merchants/${p.store.merchant}/items/${p.itemId}`, { body: p.fields });
@@ -386,6 +386,7 @@ function inventoryRouter() {
           try { await setStock(p.store, p.itemId, p.qty); out.saved.qty = p.qty; }
           catch (e) { out.ok = false; out.errors.push(`quantity: ${e.message}`); }
         }
+        await logEdits(req.user.id, p.store.id, p.itemId, before, out.saved, 'edit');
         return out;
       }));
       invalidate();
@@ -429,6 +430,8 @@ function inventoryRouter() {
         if (dupe) return { store: store.id, ok: false, errors: [`${store.name} already has "${dupe.name}"`] };
         try {
           const r = await createInStore(store, spec, snapshot);
+          await logEdits(req.user.id, store.id, r.item.id, { name: spec.name, price: null, cost: null, qty: null },
+            { price: spec.price, cost: spec.cost, ...(r.item.qty !== null ? { qty: spec.qty } : {}) }, 'create', r.item);
           return { store: store.id, ok: true, item: r.item, errors: r.warnings };
         } catch (e) { return { store: store.id, ok: false, errors: [e.message] }; }
       }));
@@ -438,7 +441,7 @@ function inventoryRouter() {
   });
 
   router.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
-    const status = err.status && err.status < 500 ? err.status : 502;
+    const status = err.status && err.status < 600 ? err.status : 500;
     if (status >= 500) console.error('[inventory]', err);
     res.status(status).json({ error: err.message || 'Something went wrong' });
   });

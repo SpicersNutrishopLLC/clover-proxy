@@ -105,6 +105,61 @@ th .arr{display:inline-block;width:10px;font-size:9px}
 .edit:hover{border-color:var(--blue);color:var(--blue-bright)}
 .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:1px;padding:1px 6px;border-radius:3px;border:1px solid var(--border2);color:var(--ink3);margin-left:6px;vertical-align:1px}
 
+/* nav + pages */
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs button{background:none;border:1px solid transparent;border-radius:6px;padding:7px 14px;font-family:var(--head);font-weight:700;font-size:16px;letter-spacing:1.5px;color:var(--ink3);cursor:pointer;text-transform:uppercase}
+.tabs button:hover{color:var(--ink2)}
+.tabs button[aria-current=page]{color:var(--ink);background:var(--blue-dim);border-color:var(--blue)}
+.who{font-size:13px;color:var(--ink2)}
+.page{padding:20px 24px 80px;max-width:1100px;margin:0 auto}
+.page h2{font-family:var(--head);font-size:26px;letter-spacing:1.5px;margin-bottom:4px}
+.page .lead{color:var(--ink2);font-size:14px;margin-bottom:18px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.card h3{font-family:var(--head);font-size:22px;letter-spacing:1.5px;display:flex;align-items:center;gap:8px}
+.card .meta{font-size:13px;color:var(--ink2);min-height:36px}
+.card .btn{align-self:flex-start}
+.badge{font-family:var(--mono);font-size:10px;letter-spacing:1px;padding:2px 7px;border-radius:10px;border:1px solid currentColor;white-space:nowrap}
+.b-open{color:var(--amber)}.b-submitted{color:var(--green)}.b-discarded{color:var(--ink3)}.b-submitting{color:var(--blue-bright)}.b-failed{color:var(--red)}
+.stats{display:flex;gap:22px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:14px}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.list{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px}
+.list table td{white-space:nowrap}
+.list table td:first-child{white-space:normal;min-width:160px}
+tr.click{cursor:pointer}
+.bar{height:8px;background:var(--border2);border-radius:4px;overflow:hidden;margin:12px 0}
+.bar > div{height:100%;background:var(--blue);transition:width .3s}
+.subtabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+
+/* count sheet */
+.ctool{position:sticky;top:64px;z-index:30;background:var(--bg);padding:10px 0;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.crow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ctitle{font-family:var(--head);font-size:22px;letter-spacing:1.5px;font-weight:700}
+.saved{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+.saved.warn{color:var(--amber)}
+.item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-top:1px solid var(--border)}
+.item.done{background:rgba(52,201,122,.05)}
+.item .nm{flex:1;min-width:0;font-size:15px}
+.item .nm small{display:block;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.item.flash{animation:flash 1s}
+@keyframes flash{0%{background:rgba(0,117,207,.35)}100%{background:transparent}}
+.stepper{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.stepper button{width:38px;height:40px;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);font-size:18px;cursor:pointer;color:var(--ink2)}
+.stepper button:active{background:var(--blue-dim)}
+.stepper input{width:72px;height:40px;text-align:center;font-size:17px}
+.item.done .stepper input{border-color:var(--green)}
+.cat .cnt{font-family:var(--mono);font-size:12px;color:var(--ink3)}
+.cat .cnt.full{color:var(--green)}
+.chip{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink2);cursor:pointer;user-select:none}
+@media (max-width:700px){
+  .page{padding:14px 12px 80px}
+  .ctool{top:0}
+  .tabs button{padding:6px 9px;font-size:14px}
+  .item{padding:9px 10px}
+  .stepper button{width:34px}
+  .stepper input{width:60px}
+}
+
 /* states */
 .center{padding:80px 24px;text-align:center;color:var(--ink2)}
 .spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 18px}
@@ -159,6 +214,7 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
 
 @media (max-width:700px){
   .header,.totals,.filters,.main{padding-left:16px;padding-right:16px}
+  .header{position:static}
   .filters{position:static}
   .brand img{height:28px}
   .tval{font-size:22px}
@@ -178,11 +234,20 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
     <div class="brand-div"></div>
     <div class="brand-sub">INVENTORY</div>
   </div>
+  <nav class="tabs" id="tabs" hidden>
+    <button data-view="inventory">Inventory</button>
+    <button data-view="count">Count</button>
+    <button data-view="reports">Reports</button>
+    <button data-view="users">Employees</button>
+  </nav>
   <div class="hdr-right" id="hdrRight" hidden>
-    <div class="pill" id="pill"><div class="pdot"></div><span id="pillTxt">Not synced</span></div>
-    <button class="btn btn-ghost" id="csvBtn">↓ CSV</button>
-    <button class="btn btn-green" id="newBtn">+ New product</button>
-    <button class="btn btn-primary" id="syncBtn">↺ Sync</button>
+    <span class="inv-only hdr-right">
+      <div class="pill" id="pill"><div class="pdot"></div><span id="pillTxt">Not synced</span></div>
+      <button class="btn btn-ghost" id="csvBtn">↓ CSV</button>
+      <button class="btn btn-green" id="newBtn">+ New product</button>
+      <button class="btn btn-primary" id="syncBtn">↺ Sync</button>
+    </span>
+    <span class="who" id="who"></span>
     <button class="btn btn-ghost btn-sm" id="logoutBtn" title="Sign out">Sign out</button>
   </div>
 </header>
@@ -190,7 +255,8 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
 <!-- Login -->
 <form class="login" id="loginView" hidden>
   <h1>SIGN IN</h1>
-  <p>Enter the inventory password.</p>
+  <p>Use the username and password your manager gave you.</p>
+  <input class="inp text" id="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" required>
   <input class="inp text" id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
   <div class="err" id="loginErr"></div>
   <button class="btn btn-primary" id="loginBtn" type="submit">Sign in</button>
@@ -236,6 +302,13 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
 
   <main class="main" id="main"></main>
 </div>
+
+<!-- Count (employees + admin) -->
+<div id="countView" class="page" hidden></div>
+<!-- Reports (admin) -->
+<div id="reportsView" class="page" hidden></div>
+<!-- Employees (admin) -->
+<div id="usersView" class="page" hidden></div>
 
 <div class="overlay" id="overlay" hidden><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
 
@@ -306,11 +379,15 @@ async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
+const VIEWS = ['appView', 'countView', 'reportsView', 'usersView'];
 function showLogin(msg) {
-  closeModal();
-  $('appView').hidden = true; $('hdrRight').hidden = true; $('loginView').hidden = false;
+  modalBusy = false; closeModal();
+  VIEWS.forEach(v => $(v).hidden = true);
+  $('hdrRight').hidden = true; $('tabs').hidden = true; $('loginView').hidden = false;
   $('loginErr').textContent = msg || '';
-  $('pw').value = ''; $('pw').focus();
+  $('user').value = ls.get('inv.lastUser') || '';
+  $('pw').value = '';
+  ($('user').value ? $('pw') : $('user')).focus();
 }
 $('loginView').addEventListener('submit', async e => {
   e.preventDefault();
@@ -318,13 +395,18 @@ $('loginView').addEventListener('submit', async e => {
   $('loginErr').textContent = '';
   const slow = setTimeout(() => { btn.textContent = 'Waking server (up to a minute)…'; }, 4000);
   try {
-    const r = await api('/login', { method: 'POST', body: { password: $('pw').value } });
+    const r = await api('/login', { method: 'POST', body: { username: $('user').value.trim(), password: $('pw').value } });
     auth.save(r.token, r.expiresAt);
-    startApp();
+    ls.set('inv.lastUser', r.user.username);
+    ls.set('inv.user', JSON.stringify(r.user));
+    startApp(r.user);
   } catch (err) { $('loginErr').textContent = err.message; }
   clearTimeout(slow); btn.disabled = false; btn.textContent = 'Sign in';
 });
-$('logoutBtn').onclick = () => { auth.clear(); S.products = []; showLogin(); };
+$('logoutBtn').onclick = async () => {
+  if (typeof flushCount === 'function') await flushCount().catch(() => {});   // never lose typed counts
+  auth.clear(); ls.del('inv.user'); S.products = []; S.loaded = false; showLogin();
+};
 
 /* ── Data ── */
 function indexProduct(p) {
@@ -543,13 +625,13 @@ $('main').addEventListener('click', e => {
 
 /* ── Modal plumbing ── */
 let modalBusy = false;
-function openModal(html) { $('modal').innerHTML = html; $('overlay').hidden = false; document.body.style.overflow = 'hidden'; }
+function openModal(html) { $('modal').style.maxWidth = ''; $('modal').innerHTML = html; $('overlay').hidden = false; document.body.style.overflow = 'hidden'; }
 function closeModal() { if (modalBusy) return; $('overlay').hidden = true; $('modal').innerHTML = ''; document.body.style.overflow = ''; }
 $('overlay').addEventListener('mousedown', e => { if (e.target === $('overlay')) closeModal(); });
 $('modal').addEventListener('click', e => { if (e.target.closest('[data-close]')) closeModal(); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('overlay').hidden) closeModal();
-  if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && $('overlay').hidden && !$('filters').hidden) { e.preventDefault(); $('q').focus(); }
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && $('overlay').hidden && !$('appView').hidden && !$('filters').hidden) { e.preventDefault(); $('q').focus(); }
 });
 function setStatus(msg, kind = '') { const s = $('mStatus'); if (s) { s.textContent = msg; s.className = 'status ' + kind; } }
 
@@ -842,13 +924,563 @@ $('csvBtn').onclick = exportCSV;
 $('newBtn').onclick = openNew;
 $('syncBtn').onclick = () => sync(true);
 
-/* ── Boot ── */
-function startApp() {
-  $('loginView').hidden = true; $('appView').hidden = false; $('hdrRight').hidden = false;
-  sync(false);
+/* ════════════════ Shared helpers for the pages below ════════════════ */
+const spinner = msg => `<div class="center"><div class="spinner"></div>${esc(msg)}</div>`;
+const errorBox = (msg, retry) => `<div class="center">❌ ${esc(msg)}${retry ? `<div class="hint"><button class="btn btn-ghost" data-retry="${retry}">Try again</button></div>` : ''}</div>`;
+const fmtWhen = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+const when = d => d ? fmtWhen.format(new Date(d)) : '—';
+const signed = (n, f = num) => n > 0 ? `<span class="pos">+${f(n)}</span>` : n < 0 ? `<span class="neg">−${f(-n)}</span>` : f(0);
+const signedMoney = c => signed(c, x => money(x));
+const storeLabel = id => (C.stores.find(s => s.id === id) || S.stores.find(s => s.id === id))?.name || id;
+document.addEventListener('click', e => {
+  const r = e.target.closest('[data-retry]');
+  if (r) ({ countHome: () => countHome(true), reportsHome, usersHome })[r.dataset.retry]?.();
+});
+function confirmBox(title, body, okLabel, okClass = 'btn-primary') {
+  return new Promise(resolve => {
+    openModal(`<div class="mhead"><div class="mtitle">${esc(title)}</div><button class="x" data-close aria-label="Close">✕</button></div>
+      <div class="mbody"><div>${body}</div></div>
+      <div class="mfoot"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn ${okClass}" id="okBtn">${esc(okLabel)}</button></div>`);
+    let done = false;
+    const finish = v => { if (!done) { done = true; resolve(v); } };
+    $('okBtn').onclick = () => { finish(true); closeModal(); };
+    const obs = new MutationObserver(() => { if ($('overlay').hidden) { obs.disconnect(); finish(false); } });
+    obs.observe($('overlay'), { attributes: true });
+  });
+}
+
+/* ════════════════ COUNTS ════════════════
+   Every number typed is saved to the server within a second, and also kept
+   on this device until the server confirms. Clover is only changed when
+   someone presses "Submit to Clover" on the review screen. */
+const C = { stores: [], count: null, items: [], lines: new Map(), pending: new Map(), q: '', onlyUncounted: false,
+  scanAdd: ls.get('cnt.scanAdd') === '1', open: new Set(), timer: null, saving: null };
+const pendKey = id => 'cnt.pending.' + id;
+const persistPending = () => { if (C.count) C.pending.size ? ls.set(pendKey(C.count.id), JSON.stringify([...C.pending])) : ls.del(pendKey(C.count.id)); };
+
+function setSaved(state) {
+  const el = $('savedTxt'); if (!el) return;
+  el.className = 'saved' + (state === 'offline' ? ' warn' : '');
+  el.textContent = state === 'saving' ? 'Saving…' : state === 'offline' ? '⚠ Offline — saved on this device' : '✓ Saved';
+}
+async function flushCount() {
+  if (!C.count) return;
+  if (C.saving) await C.saving.catch(() => {});
+  if (!C.pending.size || !C.count) return;
+  const sent = new Map(C.pending);
+  const id = C.count.id;
+  C.saving = (async () => {
+    setSaved('saving');
+    try {
+      await api(`/counts/${id}/lines`, { method: 'PUT', body: { lines: [...sent].map(([itemId, counted]) => ({ itemId, counted })) } });
+      for (const [k, v] of sent) if (C.pending.get(k) === v) C.pending.delete(k);
+      persistPending();
+      setSaved(C.pending.size ? 'saving' : 'saved');
+    } catch (e) {
+      if (/no longer open|already submitted/i.test(e.message)) countClosedUnderneath(e.message);
+      else if (!(e instanceof SignedOut)) setSaved('offline');
+      throw e;
+    } finally { C.saving = null; }
+  })();
+  return C.saving;
+}
+const scheduleSave = () => { clearTimeout(C.timer); C.timer = setTimeout(() => flushCount().catch(() => {}), 600); };
+setInterval(() => { if (C.pending.size && !C.saving && auth.token()) flushCount().catch(() => {}); }, 10000);
+addEventListener('online', () => flushCount().catch(() => {}));
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushCount().catch(() => {}); });
+
+function countClosedUnderneath(msg) {
+  if (C.count) { ls.del(pendKey(C.count.id)); }
+  C.pending.clear(); C.count = null; ls.del('cnt.id');
+  toast('⚠ ' + msg, 6000);
+  countHome(false);
+}
+
+async function countHome(resume = true) {
+  const el = $('countView');
+  el.innerHTML = spinner('Loading stores…');
+  try {
+    C.stores = (await api('/counts/stores')).stores;
+    const resumeId = Number(ls.get('cnt.id'));
+    if (resume && resumeId) {
+      if (C.stores.some(s => s.open?.id === resumeId && s.open.status === 'open')) return openSheet(resumeId);
+      ls.del('cnt.id');
+    }
+    renderPicker();
+  } catch (e) { if (!(e instanceof SignedOut)) el.innerHTML = errorBox(e.message, 'countHome'); }
+}
+function renderPicker() {
+  C.count = null;
+  $('countView').innerHTML = `<h2>INVENTORY COUNT</h2>
+    <p class="lead">Pick the store you’re counting. Your numbers save as you go, even if the app closes. Nothing changes in Clover until you review and submit.</p>
+    <div class="cards">${C.stores.map(s => `<div class="card">
+      <h3><span class="dot ${s.id}"></span>${esc(s.name.toUpperCase())}${s.open ? ` <span class="badge b-${s.open.status}">${s.open.status === 'open' ? 'IN PROGRESS' : 'SUBMITTING'}</span>` : ''}</h3>
+      <div class="meta">${s.open
+        ? `Started by ${esc(s.open.startedBy || '?')} · ${when(s.open.startedAt)}<br>${num(s.open.counted)} items counted so far`
+        : s.lastCount ? `Last counted ${when(s.lastCount.at)}<br>by ${esc(s.lastCount.by || '?')}` : 'Not counted in this app yet'}</div>
+      <button class="btn ${s.open ? 'btn-primary' : 'btn-green'}" data-start="${s.id}"${s.open?.status === 'submitting' ? ' disabled' : ''}>${s.open ? 'Continue count →' : 'Start count →'}</button>
+    </div>`).join('')}</div>`;
+}
+async function startCount(storeId) {
+  $('countView').innerHTML = spinner('Opening count…');
+  try { const r = await api('/counts', { method: 'POST', body: { store: storeId } }); await openSheet(r.count.id); }
+  catch (e) { if (!(e instanceof SignedOut)) $('countView').innerHTML = errorBox(e.message, 'countHome'); }
+}
+async function openSheet(id) {
+  $('countView').innerHTML = spinner('Loading count sheet…');
+  const d = await api(`/counts/${id}`);
+  if (d.count.status !== 'open') { ls.del('cnt.id'); toast('That count was already submitted.'); return countHome(false); }
+  C.count = d.count; C.items = d.items;
+  C.items.forEach(i => { i._hay = norm([i.name, i.sku, i.code, i.category].join(' ')); });
+  C.lines = new Map(Object.entries(d.lines));
+  C.pending = new Map(readJSON(pendKey(id), []));
+  for (const [k, v] of C.pending) v === null ? C.lines.delete(k) : C.lines.set(k, { counted: v, by: ME.name });
+  ls.set('cnt.id', String(id));
+  C.q = ''; C.open = new Set();
+  renderSheet();
+  if (C.pending.size) flushCount().catch(() => {}); else setSaved('saved');
+}
+function renderSheet() {
+  const c = C.count;
+  $('countView').innerHTML = `<div class="ctool">
+      <div class="crow">
+        <button class="btn btn-ghost btn-sm" data-act="back">← Stores</button>
+        <span class="ctitle"><span class="dot ${c.store}" style="display:inline-block"></span> ${esc(c.storeName.toUpperCase())}</span>
+        <span class="saved" id="savedTxt"></span>
+        <span class="note" id="cProg" style="margin-left:auto"></span>
+        <button class="btn btn-primary" data-act="review">Review &amp; submit →</button>
+      </div>
+      <div class="crow">
+        <label class="search" style="max-width:none"><span>⌕</span><input id="cq" type="search" placeholder="Search or scan a barcode…" autocomplete="off" enterkeyhint="search"></label>
+        <label class="chip"><input type="checkbox" id="cUncounted"${C.onlyUncounted ? ' checked' : ''}> Uncounted only</label>
+        <label class="chip" title="When a barcode is scanned, add 1 to that item"><input type="checkbox" id="cScan"${C.scanAdd ? ' checked' : ''}> Scan adds +1</label>
+        <button class="btn btn-ghost btn-sm" data-act="expand" id="cExpand">Expand all</button>
+      </div>
+    </div>
+    <div id="cList"></div>`;
+  $('cq').addEventListener('input', debounce(() => { C.q = $('cq').value; renderList(); }, 150));
+  $('cq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); scanOrJump($('cq').value.trim()); } });
+  $('cUncounted').onchange = () => { C.onlyUncounted = $('cUncounted').checked; renderList(); };
+  $('cScan').onchange = () => { C.scanAdd = $('cScan').checked; ls.set('cnt.scanAdd', C.scanAdd ? '1' : '0'); $('cq').focus(); };
+  renderList();
+}
+function updateProgress() {
+  const el = $('cProg'); if (el) el.textContent = `${num(C.lines.size)} of ${num(C.items.length)} counted`;
+}
+function renderList() {
+  const terms = norm(C.q).split(' ').filter(Boolean);
+  const searching = terms.length > 0;
+  const groups = new Map(), totals = new Map();
+  for (const it of C.items) {
+    const t = totals.get(it.category) || { n: 0, done: 0 }; t.n++; if (C.lines.has(it.itemId)) t.done++; totals.set(it.category, t);
+    if (searching && !terms.every(w => it._hay.includes(w))) continue;
+    if (C.onlyUncounted && C.lines.has(it.itemId)) continue;
+    (groups.get(it.category) || groups.set(it.category, []).get(it.category)).push(it);
+  }
+  let anyOpen = false;
+  const html = [...groups.keys()].sort().map(cat => {
+    const list = groups.get(cat).sort((a, b) => a.name.localeCompare(b.name));
+    const open = searching || C.open.has(cat);
+    if (open) anyOpen = true;
+    const t = totals.get(cat);
+    return `<section class="cat${open ? '' : ' closed'}" data-cat="${esc(cat)}">
+      <button class="cat-head" data-ctoggle aria-expanded="${open}">
+        <span class="cat-left"><span class="chev">▶</span><span class="cat-name">${esc(cat.toUpperCase())}</span></span>
+        <span class="cnt${t.done === t.n ? ' full' : ''}" data-ccnt>${num(t.done)} / ${num(t.n)}</span>
+      </button>
+      ${open ? `<div class="tw">${list.map(itemRow).join('')}</div>` : ''}
+    </section>`;
+  }).join('');
+  $('cList').innerHTML = html || `<div class="center">${searching ? 'No items match that search.' : C.onlyUncounted ? '🎉 Everything has been counted.' : 'No items.'}</div>`;
+  $('cExpand').textContent = anyOpen && !searching ? 'Collapse all' : 'Expand all';
+  updateProgress();
+}
+function itemRow(it) {
+  const l = C.lines.get(it.itemId);
+  const ids = [it.sku, it.code && it.code !== it.sku ? it.code : ''].filter(Boolean).join(' · ');
+  const other = l && l.by && l.by !== ME.name ? ` · counted by ${esc(l.by)}` : '';
+  return `<div class="item${l ? ' done' : ''}" data-id="${esc(it.itemId)}">
+    <div class="nm">${esc(it.name)}<small>${esc(ids)}${other}</small></div>
+    <div class="stepper"><button type="button" data-step="-1" aria-label="Minus one">−</button><input class="inp" data-qty inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="${l ? l.counted : ''}" aria-label="Count for ${esc(it.name)}"><button type="button" data-step="1" aria-label="Plus one">+</button></div>
+  </div>`;
+}
+function setCount(itemId, value) {
+  if (value === null) C.lines.delete(itemId); else C.lines.set(itemId, { counted: value, by: ME.name });
+  C.pending.set(itemId, value);
+  persistPending(); scheduleSave(); setSaved('saving');
+  const row = $('cList').querySelector(`.item[data-id="${CSS.escape(itemId)}"]`);
+  if (row) {
+    row.classList.toggle('done', value !== null);
+    const inp = row.querySelector('[data-qty]');
+    if (document.activeElement !== inp) inp.value = value ?? '';
+    const sec = row.closest('.cat'), cat = sec.dataset.cat;
+    const n = C.items.filter(i => i.category === cat), done = n.filter(i => C.lines.has(i.itemId)).length;
+    const cc = sec.querySelector('[data-ccnt]'); cc.textContent = `${num(done)} / ${num(n.length)}`; cc.classList.toggle('full', done === n.length);
+  }
+  updateProgress();
+}
+function scanOrJump(code) {
+  if (!code) return;
+  const c = code.toLowerCase();
+  const hits = C.items.filter(i => (i.sku && i.sku.toLowerCase() === c) || (i.code && i.code.toLowerCase() === c));
+  if (hits.length === 1) {
+    const it = hits[0];
+    if (C.scanAdd) {
+      const v = (C.lines.get(it.itemId)?.counted ?? 0) + 1;
+      $('cq').value = ''; C.q = '';
+      C.open.add(it.category); renderList(); setCount(it.itemId, v);
+      const row = $('cList').querySelector(`.item[data-id="${CSS.escape(it.itemId)}"]`);
+      if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); row.scrollIntoView({ block: 'center' }); }
+      toast(`+1 ${it.name} → ${v}`, 1500);
+      $('cq').focus();
+    } else {
+      C.q = code; renderList();
+      const inp = $('cList').querySelector(`.item[data-id="${CSS.escape(it.itemId)}"] [data-qty]`);
+      if (inp) { inp.focus(); inp.select(); }
+    }
+  } else if (!hits.length && !C.items.some(i => i._hay.includes(norm(code)))) {
+    toast(`No item found for “${code}”`);
+  }
+}
+$('countView').addEventListener('click', async e => {
+  const t = e.target;
+  const start = t.closest('[data-start]'); if (start) return startCount(start.dataset.start);
+  const tog = t.closest('[data-ctoggle]');
+  if (tog) { const cat = tog.closest('.cat').dataset.cat; C.open.has(cat) ? C.open.delete(cat) : C.open.add(cat); return renderList(); }
+  const step = t.closest('[data-step]');
+  if (step) {
+    const id = step.closest('.item').dataset.id;
+    const cur = C.lines.get(id)?.counted ?? 0;
+    return setCount(id, Math.max(0, cur + Number(step.dataset.step)));
+  }
+  const act = t.closest('[data-act]')?.dataset.act;
+  if (act === 'back') { await flushCount().catch(() => {}); ls.del('cnt.id'); C.count = null; return countHome(false); }
+  if (act === 'expand') {
+    const cats = [...new Set(C.items.map(i => i.category))];
+    const anyOpen = cats.some(c => C.open.has(c));
+    C.open = anyOpen ? new Set() : new Set(cats); return renderList();
+  }
+  if (act === 'review') return openReview();
+  if (act === 'sheet') return renderSheet();
+  if (act === 'submit') return submitCount();
+  if (act === 'discard') return discardCount();
+  if (act === 'done') return countHome(false);
+});
+$('countView').addEventListener('input', e => {
+  const inp = e.target.closest('[data-qty]'); if (!inp) return;
+  const raw = inp.value.trim();
+  const id = inp.closest('.item').dataset.id;
+  if (raw === '') { inp.classList.remove('bad'); return setCount(id, null); }
+  const n = Number(raw);
+  const ok = Number.isInteger(n) && n >= 0 && n <= 100000;
+  inp.classList.toggle('bad', !ok);
+  if (ok) setCount(id, n);
+});
+$('countView').addEventListener('keydown', e => {
+  // Enter on a count jumps to the next item for fast keyboard counting
+  const inp = e.target.closest('[data-qty]');
+  if (inp && e.key === 'Enter') {
+    e.preventDefault();
+    const all = [...$('cList').querySelectorAll('[data-qty]')];
+    const next = all[all.indexOf(inp) + 1]; if (next) { next.focus(); next.select(); }
+  }
+});
+
+async function openReview() {
+  if (!C.lines.size) return toast('Count at least one item first.');
+  try { await flushCount(); }
+  catch (e) { if (!(e instanceof SignedOut)) toast('Can’t reach the server. Your counts are safe on this device — try again when you’re back online.', 6000); return; }
+  const el = $('countView');
+  el.innerHTML = spinner('Comparing your counts with Clover…');
+  let r;
+  try { r = await api(`/counts/${C.count.id}/review`); }
+  catch (e) { if (!(e instanceof SignedOut)) { el.innerHTML = errorBox(e.message); el.insertAdjacentHTML('beforeend', '<div class="center"><button class="btn btn-ghost" data-act="sheet">← Back to counting</button></div>'); } return; }
+  C.review = r;
+  const admin = isAdmin();
+  el.innerHTML = `<div class="ctool"><div class="crow">
+      <button class="btn btn-ghost btn-sm" data-act="sheet">← Back to counting</button>
+      <span class="ctitle">REVIEW — ${esc(C.count.storeName.toUpperCase())}</span></div></div>
+    <div class="stats">
+      <div class="tcard"><div class="tlabel">COUNTED</div><div class="tval">${num(r.counted)} <small class="note">of ${num(r.totalItems)}</small></div></div>
+      <div class="tcard"><div class="tlabel">WILL CHANGE</div><div class="tval amber">${num(r.changes.length)}</div></div>
+      <div class="tcard"><div class="tlabel">UNITS</div><div class="tval">${signed(r.unitsUp)} / ${signed(-r.unitsDown)}</div></div>
+      ${admin ? `<div class="tcard"><div class="tlabel">COST VALUE CHANGE</div><div class="tval">${signedMoney(r.costChange)}</div></div>
+      <div class="tcard"><div class="tlabel">RETAIL VALUE CHANGE</div><div class="tval">${signedMoney(r.retailChange)}</div></div>` : ''}
+    </div>
+    <p class="lead">${r.uncounted ? `<b>${num(r.uncounted)}</b> items weren’t counted — they’ll stay exactly as they are in Clover. ` : ''}${r.missing ? `${num(r.missing)} counted items no longer exist in Clover and will be skipped. ` : ''}${r.changes.length ? 'Check these differences for typos before submitting:' : 'Everything you counted matches Clover. Submitting records this count without changing any quantities.'}</p>
+    ${r.changes.length ? `<div class="list"><div class="tw" style="border:none"><table>
+      <thead><tr><th>ITEM</th><th>IN CLOVER</th><th>YOUR COUNT</th><th>DIFFERENCE</th>${admin ? '<th>COST IMPACT</th>' : ''}</tr></thead>
+      <tbody>${r.changes.map(x => `<tr><td>${esc(x.name)}<span class="sku">${esc(x.category)}</span></td><td>${num(x.clover)}</td><td><b>${num(x.counted)}</b></td><td>${signed(x.diff)}</td>${admin ? `<td>${signedMoney(x.costChange)}</td>` : ''}</tr>`).join('')}</tbody>
+    </table></div></div>` : ''}
+    <div class="crow" style="margin-top:18px">
+      <button class="btn btn-green" data-act="submit" style="padding:12px 22px;font-size:15px">Submit to Clover</button>
+      <button class="btn btn-ghost" data-act="sheet">Keep counting</button>
+      <button class="btn btn-ghost btn-sm" data-act="discard" style="margin-left:auto;color:var(--red)">Discard this count</button>
+    </div>`;
+}
+async function submitCount() {
+  const r = C.review;
+  const ok = await confirmBox('Submit to Clover?',
+    `<p>${r.changes.length ? `This updates <b>${num(r.changes.length)}</b> item quantities in Clover for <b>${esc(C.count.storeName)}</b>.` : `No quantities will change. The count for <b>${esc(C.count.storeName)}</b> will be recorded.`}</p>
+     <p class="note" style="margin-top:8px">Uncounted items are left alone. This can’t be undone from the app.</p>`, 'Yes, submit', 'btn-green');
+  if (!ok) return;
+  const id = C.count.id, storeName = C.count.storeName;
+  const el = $('countView');
+  el.innerHTML = `<div class="center"><div class="ctitle">SUBMITTING ${esc(storeName.toUpperCase())}…</div><div class="bar"><div id="pbar" style="width:3%"></div></div><div class="note" id="ptxt">Starting…</div></div>`;
+  try { await api(`/counts/${id}/submit`, { method: 'POST' }); }
+  catch (e) { if (!(e instanceof SignedOut)) { toast('❌ ' + e.message, 6000); openReview(); } return; }
+  ls.del('cnt.id'); ls.del(pendKey(id)); C.pending.clear(); C.count = null;
+  let c;
+  for (;;) {
+    await new Promise(res => setTimeout(res, 1200));
+    try { c = (await api(`/counts/${id}/status`)).count; } catch (e) { if (e instanceof SignedOut) return; continue; }
+    if (c.progress && $('pbar')) {
+      $('pbar').style.width = Math.max(3, Math.round(c.progress.done / Math.max(c.progress.total, 1) * 100)) + '%';
+      $('ptxt').textContent = `${num(c.progress.done)} of ${num(c.progress.total)} items sent to Clover`;
+    }
+    if (c.status === 'submitted') break;
+  }
+  const s = c.summary || {};
+  el.innerHTML = `<div class="center">
+    <div style="font-size:44px">${s.failed ? '⚠️' : '✅'}</div>
+    <div class="ctitle" style="margin:8px 0">${esc(storeName.toUpperCase())} COUNT ${s.failed ? 'SUBMITTED WITH PROBLEMS' : 'SUBMITTED'}</div>
+    <p class="lead">${num(s.counted)} items counted · ${num(s.changed)} quantities updated in Clover${s.failed ? ` · <span class="neg">${num(s.failed)} couldn’t be updated — your manager can retry them from Reports</span>` : ''}</p>
+    <button class="btn btn-primary" data-act="done">Done</button></div>`;
+}
+async function discardCount() {
+  const ok = await confirmBox('Discard this count?', `<p>All numbers entered for <b>${esc(C.count.storeName)}</b> in this count will be thrown away. Clover is not changed.</p>`, 'Discard', 'btn-ghost');
+  if (!ok) return;
+  try {
+    await api(`/counts/${C.count.id}/discard`, { method: 'POST' });
+    ls.del(pendKey(C.count.id)); ls.del('cnt.id'); C.pending.clear(); C.count = null;
+    toast('Count discarded'); countHome(false);
+  } catch (e) { if (!(e instanceof SignedOut)) toast('❌ ' + e.message, 6000); }
+}
+
+/* ════════════════ REPORTS (admin) ════════════════ */
+const RP = { store: '', tab: 'counts', days: 90 };
+async function reportsHome() {
+  const el = $('reportsView');
+  if (!C.stores.length) { try { C.stores = (await api('/counts/stores')).stores; } catch {} }
+  el.innerHTML = `<h2>REPORTS</h2>
+    <p class="lead">Every inventory count and every manual change made in this app, by store, with who did it.</p>
+    <div class="subtabs">
+      <div class="seg" id="rStore">${[{ id: '', name: 'All stores' }, ...C.stores].map(s => `<button data-rstore="${s.id}" aria-pressed="${RP.store === s.id}">${esc(s.name.toUpperCase())}</button>`).join('')}</div>
+      <div class="seg" id="rTab"><button data-rtab="counts" aria-pressed="${RP.tab === 'counts'}">COUNTS</button><button data-rtab="edits" aria-pressed="${RP.tab === 'edits'}">MANUAL CHANGES</button></div>
+      <select class="select" id="rDays"${RP.tab === 'edits' ? '' : ' hidden'}>${[30, 90, 365].map(d => `<option value="${d}"${RP.days === d ? ' selected' : ''}>Last ${d} days</option>`).join('')}</select>
+    </div>
+    <div id="rBody">${spinner('Loading…')}</div>`;
+  $('rDays').onchange = () => { RP.days = Number($('rDays').value); reportsHome(); };
+  try { RP.tab === 'counts' ? await renderCountList() : await renderEdits(); }
+  catch (e) { if (!(e instanceof SignedOut)) $('rBody').innerHTML = errorBox(e.message, 'reportsHome'); }
+}
+async function renderCountList() {
+  const { counts } = await api('/reports/counts' + (RP.store ? `?store=${RP.store}` : ''));
+  if (!counts.length) { $('rBody').innerHTML = '<div class="center">No counts yet. Counts appear here as soon as someone starts one.</div>'; return; }
+  const done = counts.filter(c => c.status === 'submitted');
+  const net = done.reduce((a, c) => a + (c.summary?.costChange || 0), 0);
+  $('rBody').innerHTML = `<div class="stats">
+      <div class="tcard"><div class="tlabel">SUBMITTED COUNTS</div><div class="tval">${num(done.length)}</div></div>
+      <div class="tcard"><div class="tlabel">ITEMS CHANGED</div><div class="tval amber">${num(done.reduce((a, c) => a + (c.summary?.changed || 0), 0))}</div></div>
+      <div class="tcard"><div class="tlabel">NET COST VALUE CHANGE</div><div class="tval">${signedMoney(net)}</div></div>
+    </div>
+    <div class="list"><div class="tw" style="border:none"><table>
+    <thead><tr><th>DATE</th><th>STORE</th><th>STATUS</th><th>COUNTED BY</th><th>SUBMITTED BY</th><th>COUNTED</th><th>CHANGED</th><th>UNITS</th><th>COST CHANGE</th><th>RETAIL CHANGE</th></tr></thead>
+    <tbody>${counts.map(c => { const s = c.summary || {}; return `<tr class="click" data-rcount="${c.id}">
+      <td>${when(c.submittedAt || c.startedAt)}</td><td>${esc(c.storeName)}</td><td>${statusBadge(c)}</td>
+      <td>${esc((s.countedBy || [c.startedBy]).filter(Boolean).join(', '))}</td><td>${esc(c.status === 'submitted' ? c.submittedBy || '' : '')}</td>
+      <td>${num(s.counted ?? c.lines ?? 0)}</td><td>${s.changed !== undefined ? num(s.changed) : '—'}</td>
+      <td>${s.unitsUp !== undefined ? `${signed(s.unitsUp)} / ${signed(-s.unitsDown)}` : '—'}</td>
+      <td>${s.costChange !== undefined ? signedMoney(s.costChange) : '—'}</td><td>${s.retailChange !== undefined ? signedMoney(s.retailChange) : '—'}</td></tr>`; }).join('')}</tbody>
+    </table></div></div>`;
+}
+function statusBadge(c) {
+  if (c.status === 'submitted' && c.summary?.failed) return `<span class="badge b-failed">${num(c.summary.failed)} FAILED</span>`;
+  return `<span class="badge b-${c.status}">${{ open: 'IN PROGRESS', submitting: 'SUBMITTING', submitted: 'SUBMITTED', discarded: 'DISCARDED' }[c.status]}</span>`;
+}
+async function openCountReport(id, changedOnly = true) {
+  openModal(spinner('Loading…'));
+  let d;
+  try { d = await api(`/reports/counts/${id}`); } catch (e) { if (!(e instanceof SignedOut)) $('modal').innerHTML = errorBox(e.message); return; }
+  const c = d.count, s = c.summary || {};
+  const lines = changedOnly && c.status === 'submitted' ? d.lines.filter(l => l.diff || l.error) : d.lines;
+  $('modal').style.maxWidth = '900px';
+  $('modal').innerHTML = `<div class="mhead"><div><div class="mtitle">${esc(c.storeName.toUpperCase())} COUNT ${statusBadge(c)}</div>
+      <div class="msub">Started ${when(c.startedAt)} by ${esc(c.startedBy || '?')}${c.submittedAt ? ` · ${c.status === 'discarded' ? 'discarded' : 'submitted'} ${when(c.submittedAt)} by ${esc(c.submittedBy || '?')}` : ''}</div></div>
+      <button class="x" data-close aria-label="Close">✕</button></div>
+    <div class="mbody">
+      ${c.status === 'submitted' ? `<div class="stats" style="margin:0">
+        <div class="tcard"><div class="tlabel">COUNTED</div><div class="tval">${num(s.counted)}</div></div>
+        <div class="tcard"><div class="tlabel">CHANGED</div><div class="tval amber">${num(s.changed)}</div></div>
+        <div class="tcard"><div class="tlabel">UNITS</div><div class="tval">${signed(s.unitsUp)} / ${signed(-s.unitsDown)}</div></div>
+        <div class="tcard"><div class="tlabel">COST CHANGE</div><div class="tval">${signedMoney(s.costChange)}</div></div>
+        <div class="tcard"><div class="tlabel">RETAIL CHANGE</div><div class="tval">${signedMoney(s.retailChange)}</div></div>
+      </div>` : `<p class="note">${c.status === 'open' ? 'This count is still in progress — nothing has been sent to Clover yet.' : 'This count was discarded — nothing was sent to Clover.'}</p>`}
+      ${c.status === 'submitted' ? `<label class="chip"><input type="checkbox" id="rChanged"${changedOnly ? ' checked' : ''}> Show changed items only</label>` : ''}
+      <div style="overflow-x:auto;max-height:55vh;overflow-y:auto"><table>
+        <thead><tr><th>ITEM</th><th>BEFORE</th><th>COUNTED</th><th>DIFF</th><th>COST IMPACT</th><th>COUNTED BY</th></tr></thead>
+        <tbody>${lines.map(l => `<tr><td>${esc(l.name)}${l.error ? `<span class="sku neg">⚠ ${esc(l.error)}</span>` : ''}</td>
+          <td>${l.before ?? '—'}</td><td><b>${num(l.counted)}</b></td><td>${l.diff === null ? '—' : signed(l.diff)}</td>
+          <td>${l.costChange === null ? '—' : signedMoney(l.costChange)}</td><td>${esc(l.by || '')}</td></tr>`).join('') || '<tr><td colspan="6">No changes.</td></tr>'}</tbody>
+      </table></div>
+    </div>
+    <div class="mfoot"><span class="status" id="mStatus"></span>
+      ${s.failed ? '<button class="btn btn-primary" id="rRetry">Retry failed items</button>' : ''}
+      ${c.status === 'open' ? '<button class="btn btn-ghost" id="rDiscard" style="color:var(--red)">Discard count</button>' : ''}
+      <button class="btn btn-ghost" id="rCsv">↓ CSV</button><button class="btn btn-ghost" data-close>Close</button></div>`;
+  $('rChanged') && ($('rChanged').onchange = () => openCountReport(id, $('rChanged').checked));
+  $('rCsv').onclick = () => downloadCSV(`count-${c.store}-${String(c.submittedAt || c.startedAt).slice(0, 10)}.csv`,
+    [['Item', 'Before', 'Counted', 'Difference', 'Cost impact', 'Counted by', 'Error'],
+     ...d.lines.map(l => [l.name, l.before ?? '', l.counted, l.diff ?? '', l.costChange === null ? '' : (l.costChange / 100).toFixed(2), l.by || '', l.error || ''])]);
+  $('rRetry') && ($('rRetry').onclick = async () => {
+    try { await api(`/counts/${id}/retry`, { method: 'POST' }); setStatus('Retrying… refresh in a moment.', 'ok'); setTimeout(() => { closeModal(); reportsHome(); }, 2500); }
+    catch (e) { if (!(e instanceof SignedOut)) setStatus(e.message, 'bad'); }
+  });
+  $('rDiscard') && ($('rDiscard').onclick = async () => {
+    try { await api(`/counts/${id}/discard`, { method: 'POST' }); closeModal(); toast('Count discarded'); reportsHome(); }
+    catch (e) { if (!(e instanceof SignedOut)) setStatus(e.message, 'bad'); }
+  });
+}
+async function renderEdits() {
+  const { edits } = await api(`/reports/edits?days=${RP.days}` + (RP.store ? `&store=${RP.store}` : ''));
+  if (!edits.length) { $('rBody').innerHTML = '<div class="center">No manual changes in this period.</div>'; return; }
+  const qtyNet = edits.reduce((a, e) => a + (e.costChange || 0), 0);
+  const fmtVal = (f, v) => v === null ? '—' : f === 'qty' ? num(v) : money(v);
+  $('rBody').innerHTML = `<div class="stats">
+      <div class="tcard"><div class="tlabel">CHANGES</div><div class="tval">${num(edits.length)}</div></div>
+      <div class="tcard"><div class="tlabel">COST VALUE CHANGE FROM QTY EDITS</div><div class="tval">${signedMoney(qtyNet)}</div></div>
+    </div>
+    <div class="list"><div class="tw" style="border:none"><table>
+    <thead><tr><th>ITEM</th><th>WHEN</th><th>STORE</th><th>BY</th><th>CHANGE</th><th>COST IMPACT</th></tr></thead>
+    <tbody>${edits.map(e => `<tr><td>${esc(e.itemName || '')}</td><td>${when(e.at)}</td><td>${esc(storeLabel(e.store))}</td><td>${esc(e.by || '')}</td>
+      <td>${e.source === 'create' ? `<span class="badge b-submitted">NEW</span> ` : ''}${{ qty: 'Qty', price: 'Price', cost: 'Cost' }[e.field]} ${fmtVal(e.field, e.before)} → <b>${fmtVal(e.field, e.after)}</b></td>
+      <td>${e.costChange === null ? '—' : signedMoney(e.costChange)}</td></tr>`).join('')}</tbody>
+    </table></div></div>`;
+}
+$('reportsView').addEventListener('click', e => {
+  const st = e.target.closest('[data-rstore]'); if (st) { RP.store = st.dataset.rstore; return reportsHome(); }
+  const tb = e.target.closest('[data-rtab]'); if (tb) { RP.tab = tb.dataset.rtab; return reportsHome(); }
+  const row = e.target.closest('[data-rcount]'); if (row) return openCountReport(Number(row.dataset.rcount));
+});
+function downloadCSV(name, rows) {
+  const blob = new Blob(['﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ════════════════ EMPLOYEES (admin) ════════════════ */
+let USERS = [];
+async function usersHome() {
+  const el = $('usersView');
+  el.innerHTML = `<h2>EMPLOYEES</h2>
+    <p class="lead">Give each person their own sign-in so counts and changes show who did them. <b>Employees</b> can only do inventory counts. <b>Admins</b> can do everything, including prices, reports and this page.</p>
+    <form class="card" id="addUser" style="margin-bottom:16px">
+      <h3>ADD A PERSON</h3>
+      <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+        <div class="field"><label for="uName">Name</label><input class="inp text" id="uName" maxlength="60" placeholder="e.g. Jordan Smith" required></div>
+        <div class="field"><label for="uUser">Username</label><input class="inp text" id="uUser" maxlength="32" autocapitalize="none" spellcheck="false" placeholder="e.g. jordan" required></div>
+        <div class="field"><label for="uPass">Password</label><input class="inp text" id="uPass" type="text" autocomplete="new-password" minlength="6" placeholder="6+ characters" required></div>
+        <div class="field"><label for="uRole">Role</label><select class="inp text" id="uRole"><option value="employee">Employee (counts only)</option><option value="admin">Admin (everything)</option></select></div>
+      </div>
+      <div class="crow"><button class="btn btn-green" type="submit">Add person</button><span class="status" id="uStatus"></span></div>
+    </form>
+    <div id="uList">${spinner('Loading…')}</div>`;
+  $('uName').addEventListener('input', () => {
+    if ($('uUser').dataset.touched) return;
+    $('uUser').value = $('uName').value.trim().toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9._-]/g, '') || '';
+  });
+  $('uUser').addEventListener('input', () => { $('uUser').dataset.touched = '1'; });
+  $('addUser').addEventListener('submit', async e => {
+    e.preventDefault();
+    const st = $('uStatus');
+    try {
+      const r = await api('/users', { method: 'POST', body: { name: $('uName').value, username: $('uUser').value, password: $('uPass').value, role: $('uRole').value } });
+      toast(`✅ Added ${r.user.name} — username “${r.user.username}”`, 5000);
+      usersHome();
+    } catch (err) { if (!(err instanceof SignedOut)) { st.textContent = err.message; st.className = 'status bad'; } }
+  });
+  try { USERS = (await api('/users')).users; renderUsers(); }
+  catch (e) { if (!(e instanceof SignedOut)) $('uList').innerHTML = errorBox(e.message, 'usersHome'); }
+}
+function renderUsers() {
+  $('uList').innerHTML = `<div class="list"><div class="tw" style="border:none"><table>
+    <thead><tr><th>NAME</th><th>USERNAME</th><th>ROLE</th><th>STATUS</th><th>LAST SIGN-IN</th><th></th></tr></thead>
+    <tbody>${USERS.map(u => `<tr${u.active ? '' : ' style="opacity:.5"'}>
+      <td>${esc(u.name)}${u.id === ME.id ? ' <span class="tag">YOU</span>' : ''}</td><td>${esc(u.username)}</td>
+      <td>${u.role === 'admin' ? 'Admin' : 'Employee'}</td><td>${u.active ? 'Active' : 'Turned off'}</td>
+      <td>${u.lastLoginAt ? when(u.lastLoginAt) : 'Never'}</td>
+      <td><button class="edit" data-uedit="${u.id}">✎ EDIT</button></td></tr>`).join('')}</tbody>
+  </table></div></div>`;
+}
+$('usersView').addEventListener('click', e => {
+  const b = e.target.closest('[data-uedit]'); if (!b) return;
+  const u = USERS.find(x => x.id === Number(b.dataset.uedit)); if (!u) return;
+  openModal(`<div class="mhead"><div><div class="mtitle">${esc(u.name.toUpperCase())}</div><div class="msub">Username: ${esc(u.username)}</div></div><button class="x" data-close aria-label="Close">✕</button></div>
+    <div class="mbody"><div class="grid2">
+      <div class="field"><label for="eName">Name</label><input class="inp text" id="eName" value="${esc(u.name)}" maxlength="60"></div>
+      <div class="field"><label for="eUser">Username</label><input class="inp text" id="eUser" value="${esc(u.username)}" maxlength="32" autocapitalize="none"></div>
+      <div class="field"><label for="ePass">New password</label><input class="inp text" id="ePass" type="text" autocomplete="new-password" placeholder="Leave blank to keep current"></div>
+      <div class="field"><label for="eRole">Role</label><select class="inp text" id="eRole"><option value="employee"${u.role === 'employee' ? ' selected' : ''}>Employee (counts only)</option><option value="admin"${u.role === 'admin' ? ' selected' : ''}>Admin (everything)</option></select></div>
+      <label class="chip field full"><input type="checkbox" id="eActive"${u.active ? ' checked' : ''}> Can sign in (untick to turn off this person’s access)</label>
+    </div><p class="note">Changing a password, role or access signs that person out on all their devices.</p></div>
+    <div class="mfoot"><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="eSave">Save</button></div>`);
+  $('eSave').onclick = async () => {
+    const body = {};
+    if ($('eName').value.trim() !== u.name) body.name = $('eName').value;
+    if ($('eUser').value.trim().toLowerCase() !== u.username) body.username = $('eUser').value;
+    if ($('ePass').value) body.password = $('ePass').value;
+    if ($('eRole').value !== u.role) body.role = $('eRole').value;
+    if ($('eActive').checked !== u.active) body.active = $('eActive').checked;
+    if (!Object.keys(body).length) return closeModal();
+    try {
+      const r = await api(`/users/${u.id}`, { method: 'POST', body });
+      if (u.id === ME.id) { ME = r.user; ls.set('inv.user', JSON.stringify(ME)); $('who').textContent = ME.name; }
+      closeModal(); toast('✅ Saved'); usersHome();
+    } catch (err) { if (!(err instanceof SignedOut)) setStatus(err.message, 'bad'); }
+  };
+});
+
+/* ── Boot + navigation ── */
+let ME = null;
+const isAdmin = () => ME?.role === 'admin';
+function startApp(user) {
+  ME = user;
+  $('loginView').hidden = true; $('hdrRight').hidden = false;
+  $('tabs').hidden = !isAdmin();
+  $('who').textContent = user.name;
+  showView(isAdmin() ? (ls.get('inv.view') || 'inventory') : 'count');
+}
+function showView(v) {
+  if (!isAdmin()) v = 'count';
+  if (!['inventory', 'count', 'reports', 'users'].includes(v)) v = 'inventory';
+  ls.set('inv.view', v);
+  const map = { inventory: 'appView', count: 'countView', reports: 'reportsView', users: 'usersView' };
+  VIEWS.forEach(id => $(id).hidden = id !== map[v]);
+  document.querySelectorAll('#tabs [data-view]').forEach(b => b.setAttribute('aria-current', b.dataset.view === v ? 'page' : 'false'));
+  document.querySelectorAll('.inv-only').forEach(e => e.hidden = v !== 'inventory');
+  if (v === 'inventory' && !S.loaded) { S.loaded = true; sync(false); }
+  if (v === 'count') countHome();
+  if (v === 'reports') reportsHome();
+  if (v === 'users') usersHome();
+  window.scrollTo(0, 0);
+}
+$('tabs').addEventListener('click', async e => {
+  const b = e.target.closest('[data-view]'); if (!b) return;
+  await flushCount().catch(() => {});
+  showView(b.dataset.view);
+});
+async function boot() {
+  if (!auth.token()) return showLogin();
+  let me = readJSON('inv.user', null);
+  try { me = (await api('/me')).user; ls.set('inv.user', JSON.stringify(me)); }
+  catch (e) {
+    if (e instanceof SignedOut) return;
+    if (!me) return showLogin(e.message);           // offline but we know who they are → carry on
+  }
+  startApp(me);
 }
 fetch(API + '/health').catch(() => {}); // start waking Render right away
-auth.token() ? startApp() : showLogin();
+boot();
 </script>
 </body>
 </html>

@@ -168,6 +168,18 @@ tr.click{cursor:pointer}
 .field.changed .inp,.lbls.changed{outline:1px solid var(--amber);outline-offset:2px;border-radius:6px}
 .varies{font-size:11px;color:var(--amber)}
 
+/* camera scanner */
+.scan{position:fixed;inset:0;z-index:250;background:rgba(5,8,12,.97);display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px;overflow-y:auto}
+.scan-top{width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center}
+.scan .x{font-size:28px;padding:4px 10px}
+#scanReader{width:100%;max-width:520px;border-radius:12px;overflow:hidden;background:#000;min-height:240px}
+#scanReader{position:relative}
+#scanReader video{width:100%;height:auto;display:block}
+.scan-aim{position:absolute;left:5%;right:5%;top:25%;bottom:25%;border:3px solid rgba(52,201,122,.9);border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);pointer-events:none}
+.scan-msg{font-size:16px;text-align:center;color:var(--ink2);min-height:24px;max-width:520px}
+.scan-msg.ok{color:var(--green);font-weight:600}.scan-msg.bad{color:var(--amber)}
+.scan-manual{width:100%;max-width:520px}.scan-manual .inp{flex:1}
+
 /* states */
 .center{padding:80px 24px;text-align:center;color:var(--ink2)}
 .spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 18px}
@@ -284,6 +296,7 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
 
   <section class="filters" id="filters" hidden>
     <label class="search"><span>⌕</span><input id="q" type="search" placeholder="Search name, SKU, UPC…  ( / )" autocomplete="off"></label>
+    <button class="btn btn-primary btn-sm" id="invScan" type="button" title="Scan a barcode with the camera">📷 Scan</button>
     <div class="seg" id="locSeg" role="group" aria-label="Store"></div>
     <select class="select" id="catSel" aria-label="Category"><option value="">All categories</option></select>
     <select class="select" id="stockSel" aria-label="Stock">
@@ -318,6 +331,12 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
 <!-- Employees (admin) -->
 <div id="usersView" class="page" hidden></div>
 
+<div class="scan" id="scanOverlay" hidden role="dialog" aria-modal="true" aria-label="Barcode scanner">
+  <div class="scan-top"><span class="ctitle" id="scanTitle">Scan</span><button class="x" id="scanClose" aria-label="Close scanner">✕</button></div>
+  <div id="scanReader"></div>
+  <div class="scan-msg" id="scanMsg"></div>
+  <div class="crow scan-manual"><input class="inp" id="scanManual" inputmode="numeric" autocomplete="off" placeholder="…or type the barcode number"><button class="btn btn-ghost btn-sm" id="scanManualGo" type="button">Go</button></div>
+</div>
 <div class="overlay" id="overlay" hidden><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
 
 <script>
@@ -1035,6 +1054,7 @@ function exportCSV() {
 }
 
 $('csvBtn').onclick = exportCSV;
+$('invScan').onclick = () => openScanner({ title: 'Find a product', onCode: inventoryScan });
 $('newBtn').onclick = openNew;
 $('syncBtn').onclick = () => sync(true);
 
@@ -1068,7 +1088,7 @@ function confirmBox(title, body, okLabel, okClass = 'btn-primary') {
    on this device until the server confirms. Clover is only changed when
    someone presses "Submit to Clover" on the review screen. */
 const C = { stores: [], count: null, items: [], lines: new Map(), pending: new Map(), q: '', onlyUncounted: false,
-  scanAdd: ls.get('cnt.scanAdd') === '1', open: new Set(), timer: null, saving: null };
+  open: new Set(), timer: null, saving: null };
 const pendKey = id => 'cnt.pending.' + id;
 const persistPending = () => { if (C.count) C.pending.size ? ls.set(pendKey(C.count.id), JSON.stringify([...C.pending])) : ls.del(pendKey(C.count.id)); };
 
@@ -1167,27 +1187,26 @@ function renderSheet() {
       <div class="crow">
         <label class="search" style="max-width:none"><span>⌕</span><input id="cq" type="search" placeholder="Search or scan a barcode…" autocomplete="off" enterkeyhint="search"></label>
         <label class="chip"><input type="checkbox" id="cUncounted"${C.onlyUncounted ? ' checked' : ''}> Uncounted only</label>
-        <label class="chip" title="When a barcode is scanned, add 1 to that item"><input type="checkbox" id="cScan"${C.scanAdd ? ' checked' : ''}> Scan adds +1</label>
+        <button class="btn btn-primary btn-sm" data-act="camera" type="button">📷 Scan</button>
         <button class="btn btn-ghost btn-sm" data-act="expand" id="cExpand">Expand all</button>
       </div>
     </div>
     <div id="cList"></div>`;
-  $('cq').addEventListener('input', debounce(() => { C.q = $('cq').value; renderList(); }, 150));
+  $('cq').addEventListener('input', debounce(() => { C.q = $('cq').value; C.fromScan = false; renderList(); }, 150));
   $('cq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); scanOrJump($('cq').value.trim()); } });
   $('cUncounted').onchange = () => { C.onlyUncounted = $('cUncounted').checked; renderList(); };
-  $('cScan').onchange = () => { C.scanAdd = $('cScan').checked; ls.set('cnt.scanAdd', C.scanAdd ? '1' : '0'); $('cq').focus(); };
   renderList();
 }
 function updateProgress() {
   const el = $('cProg'); if (el) el.textContent = `${num(C.lines.size)} of ${num(C.items.length)} counted`;
 }
-function renderList() {
-  const terms = norm(C.q).split(' ').filter(Boolean);
-  const searching = terms.length > 0;
+function renderList(onlyIds = null) {
+  const terms = onlyIds ? [] : norm(C.q).split(' ').filter(Boolean);
+  const searching = terms.length > 0 || !!onlyIds;
   const groups = new Map(), totals = new Map();
   for (const it of C.items) {
     const t = totals.get(it.category) || { n: 0, done: 0 }; t.n++; if (C.lines.has(it.itemId)) t.done++; totals.set(it.category, t);
-    if (searching && !terms.every(w => it._hay.includes(w))) continue;
+    if (onlyIds ? !onlyIds.has(it.itemId) : searching && !terms.every(w => it._hay.includes(w))) continue;
     if (C.onlyUncounted && C.lines.has(it.itemId)) continue;
     (groups.get(it.category) || groups.set(it.category, []).get(it.category)).push(it);
   }
@@ -1215,7 +1234,7 @@ function itemRow(it) {
   const other = l && l.by && l.by !== ME.name ? ` · counted by ${esc(l.by)}` : '';
   return `<div class="item${l ? ' done' : ''}" data-id="${esc(it.itemId)}">
     <div class="nm">${esc(it.name)}<small>${esc(ids)}${other}</small></div>
-    <div class="stepper"><button type="button" data-step="-1" aria-label="Minus one">−</button><input class="inp" data-qty inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="${l ? l.counted : ''}" aria-label="Count for ${esc(it.name)}"><button type="button" data-step="1" aria-label="Plus one">+</button></div>
+    <div class="stepper"><button type="button" data-step="-1" aria-label="Minus one">−</button><input class="inp" data-qty inputmode="numeric" pattern="[0-9]*" enterkeyhint="next" autocomplete="off" value="${l ? l.counted : ''}" aria-label="Count for ${esc(it.name)}"><button type="button" data-step="1" aria-label="Plus one">+</button></div>
   </div>`;
 }
 function setCount(itemId, value) {
@@ -1233,29 +1252,157 @@ function setCount(itemId, value) {
   }
   updateProgress();
 }
-function scanOrJump(code) {
-  if (!code) return;
-  const c = code.toLowerCase();
-  const hits = C.items.filter(i => (i.sku && i.sku.toLowerCase() === c) || (i.code && i.code.toLowerCase() === c));
+/* Barcode matching: exact, or same digits ignoring leading zeros (UPC-A vs EAN-13). */
+const codeDigits = v => String(v || '').replace(/^0+/, '');
+function sameCode(scan, val) {
+  if (!scan || !val) return false;
+  const a = String(scan).trim().toLowerCase(), b = String(val).trim().toLowerCase();
+  if (a === b) return true;
+  return /^\d{6,}$/.test(a) && /^\d{6,}$/.test(b) && codeDigits(a) === codeDigits(b);
+}
+/* Returns {msg, close} so the camera knows what to show / whether to stop. */
+function scanOrJump(code, fromCamera = false) {
+  if (!code) return null;
+  const hits = C.items.filter(i => sameCode(code, i.sku) || sameCode(code, i.code));
   if (hits.length === 1) {
     const it = hits[0];
-    if (C.scanAdd) {
-      const v = (C.lines.get(it.itemId)?.counted ?? 0) + 1;
-      $('cq').value = ''; C.q = '';
-      C.open.add(it.category); renderList(); setCount(it.itemId, v);
-      const row = $('cList').querySelector(`.item[data-id="${CSS.escape(it.itemId)}"]`);
-      if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); row.scrollIntoView({ block: 'center' }); }
-      toast(`+1 ${it.name} → ${v}`, 1500);
-      $('cq').focus();
-    } else {
-      C.q = code; renderList();
-      const inp = $('cList').querySelector(`.item[data-id="${CSS.escape(it.itemId)}"] [data-qty]`);
-      if (inp) { inp.focus(); inp.select(); }
-    }
-  } else if (!hits.length && !C.items.some(i => i._hay.includes(norm(code)))) {
-    toast(`No item found for “${code}”`);
+    C.q = it.name; $('cq').value = it.name; renderListOnly([it]);
+    C.fromScan = fromCamera;
+    const inp = $('cList').querySelector(`.item[data-id="${CSS.escape(it.itemId)}"] [data-qty]`);
+    if (inp) { inp.focus(); inp.select(); }
+    return { msg: it.name, close: true };
   }
+  if (hits.length > 1) {
+    $('cq').value = code; C.q = ''; C.open = new Set(hits.map(h => h.category));
+    renderListOnly(hits);
+    toast(`${hits.length} items share barcode ${code} — pick the right one`, 4000);
+    return { msg: `${hits.length} items share this barcode`, close: true };
+  }
+  if (!fromCamera && C.items.some(i => i._hay.includes(norm(code)))) return null; // typed text: normal search
+  toast(`No item found for barcode “${code}” at this store`, 5000);
+  return { msg: `✗ Not found: ${code}` };
 }
+/* Show just these items (used when several share a barcode). */
+function renderListOnly(items) { renderList(new Set(items.map(i => i.itemId))); }
+
+/* ════════════════ Camera barcode scanner ════════════════ */
+const SCAN = { stream: null, timer: null, video: null, onCode: null, last: '', lastAt: 0, loading: null, dec: null, canvas: null };
+function loadZXing() {
+  if (window.ZXing) return Promise.resolve();
+  return SCAN.loading ||= new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = (API === '/api' ? '' : 'https://clover-proxy-hs3q.onrender.com/app/') + 'vendor/zxing.min.js';
+    el.onload = res; el.onerror = () => { SCAN.loading = null; rej(new Error('Couldn’t load the scanner. Check your connection.')); };
+    document.head.appendChild(el);
+  });
+}
+/* Prefer the phone's built-in barcode reader (Android Chrome); otherwise ZXing (iPhone, desktop). */
+async function getDecoder() {
+  if (SCAN.dec) return SCAN.dec;
+  const formats = ['upc_a', 'upc_e', 'ean_13', 'ean_8', 'code_128', 'code_39', 'itf'];
+  if ('BarcodeDetector' in window) {
+    try {
+      const have = await BarcodeDetector.getSupportedFormats();
+      const use = formats.filter(f => have.includes(f));
+      if (use.includes('ean_13') || use.includes('upc_a')) {
+        const d = new BarcodeDetector({ formats: use });
+        return SCAN.dec = { detect: async v => (await d.detect(v))[0]?.rawValue || null };
+      }
+    } catch {}
+  }
+  await loadZXing();
+  const Z = window.ZXing, F = Z.BarcodeFormat;
+  const hints = new Map();
+  hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.CODE_128, F.CODE_39, F.ITF]);
+  hints.set(Z.DecodeHintType.TRY_HARDER, true);
+  const reader = new Z.MultiFormatReader(); reader.setHints(hints);
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  return SCAN.dec = { detect: async v => {
+    // Read the middle band of the picture at full camera resolution (barcodes are wide, not tall).
+    const vw = v.videoWidth, vh = v.videoHeight; if (!vw || !vh) return null;
+    const sh = Math.round(vh * 0.5), sy = Math.round((vh - sh) / 2);
+    const scale = Math.min(1, 1280 / vw);
+    canvas.width = Math.round(vw * scale); canvas.height = Math.round(sh * scale);
+    ctx.drawImage(v, 0, sy, vw, sh, 0, 0, canvas.width, canvas.height);
+    try {
+      const bmp = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+      return reader.decodeWithState(bmp).getText();
+    } catch { return null; } finally { reader.reset(); }
+  } };
+}
+function cameraError(e) {
+  const m = String(e?.message || e?.name || e);
+  if (/NotAllowed|Permission|denied/i.test(m) || e?.name === 'NotAllowedError') return 'The camera is blocked. Allow camera access for this site in your browser settings and try again, or type the number below.';
+  if (/NotFound|not found|Overconstrained/i.test(m) || e?.name === 'NotFoundError') return 'No camera found on this device. Type the number below instead.';
+  if (!window.isSecureContext || !navigator.mediaDevices) return 'The camera only works on the secure (https) site.';
+  return 'Couldn’t start the camera: ' + m;
+}
+async function openScanner({ title, onCode }) {
+  Object.assign(SCAN, { onCode, last: '', lastAt: 0 });
+  $('scanTitle').textContent = title;
+  $('scanMsg').textContent = 'Starting camera…'; $('scanMsg').className = 'scan-msg';
+  $('scanManual').value = '';
+  $('scanReader').innerHTML = '<video playsinline muted autoplay></video><div class="scan-aim"></div>';
+  SCAN.video = $('scanReader').querySelector('video');
+  $('scanOverlay').hidden = false; document.body.style.overflow = 'hidden';
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('secure');
+    const [stream, dec] = await Promise.all([
+      navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } }),
+      getDecoder(),
+    ]);
+    if ($('scanOverlay').hidden) { stream.getTracks().forEach(t => t.stop()); return; }   // closed while starting
+    SCAN.stream = stream;
+    const track = stream.getVideoTracks()[0];
+    try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
+    SCAN.video.srcObject = stream;
+    await SCAN.video.play().catch(() => {});
+    $('scanMsg').textContent = 'Point the camera at the barcode.';
+    const tick = async () => {
+      if (!SCAN.stream) return;
+      if (SCAN.video.readyState >= 2) {
+        const code = await dec.detect(SCAN.video).catch(() => null);
+        if (code && SCAN.stream) handleScan(code);
+      }
+      if (SCAN.stream) SCAN.timer = setTimeout(tick, 120);
+    };
+    tick();
+  } catch (e) { $('scanMsg').textContent = cameraError(e); $('scanMsg').className = 'scan-msg bad'; }
+}
+async function closeScanner() {
+  $('scanOverlay').hidden = true; document.body.style.overflow = '';
+  clearTimeout(SCAN.timer);
+  if (SCAN.stream) SCAN.stream.getTracks().forEach(t => t.stop());
+  SCAN.stream = null;
+  if (SCAN.video) SCAN.video.srcObject = null;
+  $('scanReader').innerHTML = '';
+}
+function handleScan(text) {
+  const code = String(text || '').trim(); if (!code) return;
+  try { navigator.vibrate?.(60); } catch {}
+  closeScanner();
+  SCAN.onCode(code);
+}
+$('scanClose').onclick = closeScanner;
+$('scanManualGo').onclick = () => { const v = $('scanManual').value.trim(); if (v) { SCAN.last = ''; handleScan(v); $('scanManual').value = ''; } };
+$('scanManual').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('scanManualGo').click(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('scanOverlay').hidden) closeScanner(); });
+
+/* Inventory page: scan → open that product (or offer to create it) */
+function inventoryScan(code) {
+  const hits = S.products.filter(p => Object.values(p.stores).some(i => sameCode(code, i.sku) || sameCode(code, i.code)));
+  if (hits.length === 1) return openEdit(hits[0].key);
+  if (hits.length > 1) {
+    openModal(`<div class="mhead"><div><div class="mtitle">${hits.length} PRODUCTS USE ${esc(code)}</div><div class="msub">Pick the one you want</div></div><button class="x" data-close aria-label="Close">✕</button></div>
+      <div class="mbody">${hits.map(p => `<button class="btn btn-ghost" style="text-align:left" data-pick-key="${esc(p.key)}">${esc(p.name)} <span class="note">· ${esc(p.category)}</span></button>`).join('')}</div>`);
+    $('modal').querySelectorAll('[data-pick-key]').forEach(b => b.onclick = () => openEdit(b.dataset.pickKey));
+    return;
+  }
+  confirmBox('Not in Clover yet', `<p>No product has barcode <b>${esc(code)}</b>${S.stores.length < 3 ? ' at your stores' : ''}.</p><p class="note" style="margin-top:6px">Create a new product with this barcode?</p>`, 'Create product', 'btn-green')
+    .then(ok => { if (!ok) return; openNew(); $('nCode').value = code; $('nSku').value = code; $('nName').focus(); });
+}
+
 $('countView').addEventListener('click', async e => {
   const t = e.target;
   const start = t.closest('[data-start]'); if (start) return startCount(start.dataset.start);
@@ -1275,6 +1422,7 @@ $('countView').addEventListener('click', async e => {
     C.open = anyOpen ? new Set() : new Set(cats); return renderList();
   }
   if (act === 'review') return openReview();
+  if (act === 'camera') return openScanner({ title: `${C.count.storeName} count`, onCode: code => scanOrJump(code, true) });
   if (act === 'sheet') return renderSheet();
   if (act === 'submit') return submitCount();
   if (act === 'discard') return discardCount();
@@ -1296,7 +1444,9 @@ $('countView').addEventListener('keydown', e => {
   if (inp && e.key === 'Enter') {
     e.preventDefault();
     const all = [...$('cList').querySelectorAll('[data-qty]')];
-    const next = all[all.indexOf(inp) + 1]; if (next) { next.focus(); next.select(); }
+    const next = all[all.indexOf(inp) + 1];
+    if (next) { next.focus(); next.select(); }
+    else if (C.fromScan) { inp.blur(); openScanner({ title: `${C.count.storeName} count`, onCode: code => scanOrJump(code, true) }); }
   }
 });
 

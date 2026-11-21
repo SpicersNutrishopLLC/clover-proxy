@@ -52,13 +52,15 @@ async function getUser(id) {
 }
 const forget = id => cache.delete(id);
 const publicUser = u => ({ id: u.id, username: u.username, name: u.display_name, role: u.role, active: u.active,
-  stores: u.role === 'admin' ? null : (u.stores || null),   // null = every store
+  stores: u.role === 'owner' ? null : (u.stores || null),   // null = every store
   createdAt: u.created_at, lastLoginAt: u.last_login_at });
 
-/* Store access: admins see every store; employees see their list (or all if none set). */
+/* Store access: owners see every store; admins and employees see their list (or all if none set). */
 let STORE_IDS = [];
 const setStoreIds = ids => { STORE_IDS = ids; };
-const canUseStore = (user, storeId) => user.role === 'admin' || !user.stores || user.stores.includes(storeId);
+const canUseStore = (user, storeId) => user.role === 'owner' || !user.stores || user.stores.includes(storeId);
+const allowedStores = user => STORE_IDS.filter(id => canUseStore(user, id));
+const isAdminRole = role => role === 'admin' || role === 'owner';
 function cleanStores(v) {
   if (v === null) return null;
   if (!Array.isArray(v) || !v.length) throw new HttpError(400, 'Pick at least one store');
@@ -69,9 +71,12 @@ function cleanStores(v) {
 
 /* First run: turn the old shared password into an "admin" account. */
 async function bootstrap() {
+  // Upgrade from the 2-role setup: the first admin becomes the owner.
+  await q(`UPDATE users SET role='owner' WHERE id = (SELECT min(id) FROM users WHERE role='admin')
+    AND NOT EXISTS (SELECT 1 FROM users WHERE role='owner')`);
   const { rows } = await q('SELECT count(*)::int AS n FROM users');
   if (rows[0].n === 0) {
-    await q(`INSERT INTO users (username, display_name, role, pw_hash) VALUES ('admin','Owner','admin',$1)`,
+    await q(`INSERT INTO users (username, display_name, role, pw_hash) VALUES ('admin','Owner','owner',$1)`,
       [hashPassword(process.env.INVENTORY_PASSWORD)]);
     console.log('[users] created admin account (username "admin", password = INVENTORY_PASSWORD)');
   }
@@ -87,8 +92,12 @@ async function authenticate(req, res, next) {
     next();
   } catch (e) { next(e); }
 }
+function requireOwner(req, res, next) {
+  if (req.user?.role !== 'owner') return next(new HttpError(403, 'Only the owner can manage people and their access'));
+  next();
+}
 function requireAdmin(req, res, next) {
-  if (req.user?.role !== 'admin') return next(new HttpError(403, 'Only an admin can do that'));
+  if (!isAdminRole(req.user?.role)) return next(new HttpError(403, 'Only an admin can do that'));
   next();
 }
 
@@ -109,7 +118,7 @@ function cleanPassword(v) {
   return s;
 }
 function cleanRole(v) {
-  if (v !== 'admin' && v !== 'employee') throw new HttpError(400, 'Role must be admin or employee');
+  if (!['owner', 'admin', 'employee'].includes(v)) throw new HttpError(400, 'Role must be owner, admin or employee');
   return v;
 }
 
@@ -145,14 +154,14 @@ function userRouter() {
   const r = express.Router();
   r.get('/me', (req, res) => res.json({ user: publicUser(req.user) }));
 
-  r.get('/users', requireAdmin, async (req, res, next) => {
+  r.get('/users', requireOwner, async (req, res, next) => {
     try {
       const { rows } = await q('SELECT * FROM users ORDER BY active DESC, lower(display_name)');
       res.json({ users: rows.map(publicUser) });
     } catch (e) { next(e); }
   });
 
-  r.post('/users', requireAdmin, async (req, res, next) => {
+  r.post('/users', requireOwner, async (req, res, next) => {
     try {
       const b = req.body || {};
       const vals = [cleanUsername(b.username), cleanName(b.name), cleanRole(b.role || 'employee'), hashPassword(cleanPassword(b.password)),
@@ -164,7 +173,7 @@ function userRouter() {
     } catch (e) { next(e); }
   });
 
-  r.post('/users/:id', requireAdmin, async (req, res, next) => {
+  r.post('/users/:id', requireOwner, async (req, res, next) => {
     try {
       const id = Number(req.params.id);
       const { rows: [u] } = await q('SELECT * FROM users WHERE id=$1', [id]);
@@ -181,10 +190,11 @@ function userRouter() {
       if (b.stores !== undefined) set('stores', cleanStores(b.stores));
       if (!sets.length) throw new HttpError(400, 'Nothing to change');
       // Never leave the shop without an active admin.
-      const losingAdmin = u.role === 'admin' && u.active && (b.role === 'employee' || b.active === false);
-      if (losingAdmin) {
-        const { rows: [{ n }] } = await q(`SELECT count(*)::int n FROM users WHERE role='admin' AND active AND id<>$1`, [id]);
-        if (n === 0) throw new HttpError(400, 'You need at least one active admin');
+      // Never leave the shop without an active owner.
+      const losingOwner = u.role === 'owner' && u.active && ((b.role !== undefined && b.role !== 'owner') || b.active === false);
+      if (losingOwner) {
+        const { rows: [{ n }] } = await q(`SELECT count(*)::int n FROM users WHERE role='owner' AND active AND id<>$1`, [id]);
+        if (n === 0) throw new HttpError(400, 'You need at least one active owner');
       }
       if (kick && id !== req.user.id) sets.push('token_version = token_version + 1'); // sign them out everywhere
       vals.push(id);
@@ -197,4 +207,4 @@ function userRouter() {
   return r;
 }
 
-module.exports = { bootstrap, authenticate, requireAdmin, loginRouter, userRouter, HttpError, publicUser, setStoreIds, canUseStore, _test: { hashPassword, checkPassword } };
+module.exports = { bootstrap, authenticate, requireAdmin, requireOwner, loginRouter, userRouter, HttpError, publicUser, setStoreIds, canUseStore, allowedStores, isAdminRole, _test: { hashPassword, checkPassword } };

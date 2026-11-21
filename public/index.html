@@ -1499,16 +1499,16 @@ async function usersHome() {
   const el = $('usersView');
   if (!C.stores.length) { try { C.stores = (await api('/counts/stores')).stores; } catch {} }
   el.innerHTML = `<h2>EMPLOYEES</h2>
-    <p class="lead">Give each person their own sign-in so counts and changes show who did them. <b>Employees</b> can only do inventory counts. <b>Admins</b> can do everything, including prices, reports and this page.</p>
+    <p class="lead">Give each person their own sign-in so counts and changes show who did them. <b>Employees</b> can only count their stores. <b>Admins</b> can also change prices, products and see reports, but only for the stores you tick. <b>Owners</b> see every store and are the only ones who can open this page, so nobody else can change anyone’s access, including their own.</p>
     <form class="card" id="addUser" style="margin-bottom:16px">
       <h3>ADD A PERSON</h3>
       <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
         <div class="field"><label for="uName">Name</label><input class="inp text" id="uName" maxlength="60" placeholder="e.g. Jordan Smith" required></div>
         <div class="field"><label for="uUser">Username</label><input class="inp text" id="uUser" maxlength="32" autocapitalize="none" spellcheck="false" placeholder="e.g. jordan" required></div>
         <div class="field"><label for="uPass">Password</label><input class="inp text" id="uPass" type="text" autocomplete="new-password" minlength="6" placeholder="6+ characters" required></div>
-        <div class="field"><label for="uRole">Role</label><select class="inp text" id="uRole"><option value="employee">Employee (counts only)</option><option value="admin">Admin (everything)</option></select></div>
+        <div class="field"><label for="uRole">Role</label><select class="inp text" id="uRole"><option value="employee"${"employee" === 'employee' ? ' selected' : ''}>Employee: counts only</option><option value="admin"${"employee" === 'admin' ? ' selected' : ''}>Admin: everything for their stores</option><option value="owner"${"employee" === 'owner' ? ' selected' : ''}>Owner: all stores + manages people</option></select></div>
       </div>
-      <div class="field" id="uStoresBox"><label>Stores they can count</label>${storePicker('u', null)}</div>
+      <div class="field" id="uStoresBox"><label>Stores they can use</label>${storePicker('u', null)}</div>
       <div class="crow"><button class="btn btn-green" type="submit">Add person</button><span class="status" id="uStatus"></span></div>
     </form>
     <div id="uList">${spinner('Loading…')}</div>`;
@@ -1517,13 +1517,13 @@ async function usersHome() {
     $('uUser').value = $('uName').value.trim().toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9._-]/g, '') || '';
   });
   $('uUser').addEventListener('input', () => { $('uUser').dataset.touched = '1'; });
-  $('uRole').onchange = () => { $('uStoresBox').hidden = $('uRole').value === 'admin'; };
+  $('uRole').onchange = () => { $('uStoresBox').hidden = $('uRole').value === 'owner'; };
   $('addUser').addEventListener('submit', async e => {
     e.preventDefault();
     const st = $('uStatus');
     try {
       const r = await api('/users', { method: 'POST', body: { name: $('uName').value, username: $('uUser').value, password: $('uPass').value, role: $('uRole').value,
-        ...($('uRole').value === 'employee' ? { stores: pickedStores('u') } : {}) } });
+        ...($('uRole').value !== 'owner' ? { stores: pickedStores('u') } : {}) } });
       toast(`✅ Added ${r.user.name} — username “${r.user.username}”`, 5000);
       usersHome();
     } catch (err) { if (!(err instanceof SignedOut)) { st.textContent = err.message; st.className = 'status bad'; } }
@@ -1536,7 +1536,7 @@ function renderUsers() {
     <thead><tr><th>NAME</th><th>USERNAME</th><th>ROLE</th><th>STORES</th><th>STATUS</th><th>LAST SIGN-IN</th><th></th></tr></thead>
     <tbody>${USERS.map(u => `<tr${u.active ? '' : ' style="opacity:.5"'}>
       <td>${esc(u.name)}${u.id === ME.id ? ' <span class="tag">YOU</span>' : ''}</td><td>${esc(u.username)}</td>
-      <td>${u.role === 'admin' ? 'Admin' : 'Employee'}</td><td>${u.stores ? esc(u.stores.map(storeLabel).join(', ')) : 'All'}</td><td>${u.active ? 'Active' : 'Turned off'}</td>
+      <td>${{ owner: 'Owner', admin: 'Admin', employee: 'Employee' }[u.role]}</td><td>${u.stores ? esc(u.stores.map(storeLabel).join(', ')) : 'All'}</td><td>${u.active ? 'Active' : 'Turned off'}</td>
       <td>${u.lastLoginAt ? when(u.lastLoginAt) : 'Never'}</td>
       <td><button class="edit" data-uedit="${u.id}">✎ EDIT</button></td></tr>`).join('')}</tbody>
   </table></div></div>`;
@@ -1549,12 +1549,12 @@ $('usersView').addEventListener('click', e => {
       <div class="field"><label for="eName">Name</label><input class="inp text" id="eName" value="${esc(u.name)}" maxlength="60"></div>
       <div class="field"><label for="eUser">Username</label><input class="inp text" id="eUser" value="${esc(u.username)}" maxlength="32" autocapitalize="none"></div>
       <div class="field"><label for="ePass">New password</label><input class="inp text" id="ePass" type="text" autocomplete="new-password" placeholder="Leave blank to keep current"></div>
-      <div class="field"><label for="eRole">Role</label><select class="inp text" id="eRole"><option value="employee"${u.role === 'employee' ? ' selected' : ''}>Employee (counts only)</option><option value="admin"${u.role === 'admin' ? ' selected' : ''}>Admin (everything)</option></select></div>
-      <div class="field full" id="eStoresBox"${u.role === 'admin' ? ' hidden' : ''}><label>Stores they can count</label>${storePicker('e', u.stores)}</div>
+      <div class="field"><label for="eRole">Role</label><select class="inp text" id="eRole"><option value="employee"${u.role === 'employee' ? ' selected' : ''}>Employee: counts only</option><option value="admin"${u.role === 'admin' ? ' selected' : ''}>Admin: everything for their stores</option><option value="owner"${u.role === 'owner' ? ' selected' : ''}>Owner: all stores + manages people</option></select></div>
+      <div class="field full" id="eStoresBox"${u.role === 'owner' ? ' hidden' : ''}><label>Stores they can use</label>${storePicker('e', u.stores)}</div>
       <label class="chip field full"><input type="checkbox" id="eActive"${u.active ? ' checked' : ''}> Can sign in (untick to turn off this person’s access)</label>
     </div><p class="note">Changing a password, role or access signs that person out on all their devices.</p></div>
     <div class="mfoot"><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="eSave">Save</button></div>`);
-  $('eRole').onchange = () => { $('eStoresBox').hidden = $('eRole').value === 'admin'; };
+  $('eRole').onchange = () => { $('eStoresBox').hidden = $('eRole').value === 'owner'; };
   $('eSave').onclick = async () => {
     const body = {};
     if ($('eName').value.trim() !== u.name) body.name = $('eName').value;
@@ -1562,7 +1562,7 @@ $('usersView').addEventListener('click', e => {
     if ($('ePass').value) body.password = $('ePass').value;
     if ($('eRole').value !== u.role) body.role = $('eRole').value;
     if ($('eActive').checked !== u.active) body.active = $('eActive').checked;
-    if ($('eRole').value === 'employee') {
+    if ($('eRole').value !== 'owner') {
       const picked = pickedStores('e');
       if (!picked.length) return setStatus('Pick at least one store.', 'bad');
       const cur = u.stores || C.stores.map(s => s.id);
@@ -1579,16 +1579,19 @@ $('usersView').addEventListener('click', e => {
 
 /* ── Boot + navigation ── */
 let ME = null;
-const isAdmin = () => ME?.role === 'admin';
+const isAdmin = () => ME?.role === 'admin' || ME?.role === 'owner';
+const isOwner = () => ME?.role === 'owner';
 function startApp(user) {
   ME = user;
   $('loginView').hidden = true; $('hdrRight').hidden = false;
   $('tabs').hidden = !isAdmin();
+  document.querySelector('#tabs [data-view=users]').hidden = !isOwner();
   $('who').textContent = user.name;
   showView(isAdmin() ? (ls.get('inv.view') || 'inventory') : 'count');
 }
 function showView(v) {
   if (!isAdmin()) v = 'count';
+  if (v === 'users' && !isOwner()) v = 'inventory';
   if (!['inventory', 'count', 'reports', 'users'].includes(v)) v = 'inventory';
   ls.set('inv.view', v);
   const map = { inventory: 'appView', count: 'countView', reports: 'reportsView', users: 'usersView' };

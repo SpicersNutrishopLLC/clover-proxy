@@ -89,6 +89,8 @@ async function migrate() {
     ALTER TABLE audit ADD COLUMN IF NOT EXISTS before_text text;
     ALTER TABLE audit ADD COLUMN IF NOT EXISTS after_text text;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS stores text[];   -- NULL = every store
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+    ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('owner','admin','employee'));
   `);
 }
 

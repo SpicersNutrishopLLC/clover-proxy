@@ -344,6 +344,25 @@ async function logText(userId, storeId, itemId, itemName, field, before, after, 
   } catch (e) { console.error('[audit]', e.message); }
 }
 
+/* ── Per-person store access ── */
+function allow(req, storeId) {
+  if (!users.canUseStore(req.user, storeId)) throw Object.assign(new Error('You don’t have access to that store'), { status: 403 });
+}
+/* Trim a snapshot down to the stores this person may see. */
+function viewFor(user, data) {
+  const ok = new Set(users.allowedStores(user));
+  if (ok.size === STORES.length) return data;
+  const products = [];
+  for (const p of data.products) {
+    const stores = Object.fromEntries(Object.entries(p.stores).filter(([id]) => ok.has(id)));
+    const first = STORES.map(s => stores[s.id]).find(Boolean);
+    if (!first) continue;
+    products.push({ ...p, stores, category: first.category || 'Uncategorized', sku: first.sku, code: first.code });
+  }
+  return { ...data, stores: data.stores.filter(s => ok.has(s.id)), products,
+    errors: data.errors.filter(e => ok.has(e.store)) };
+}
+
 /* ── Router ── */
 function inventoryRouter() {
   const missing = [
@@ -398,8 +417,8 @@ function inventoryRouter() {
 
   router.get('/inventory', async (req, res, next) => {
     try {
-      const { _categoryIds, ...data } = await getSnapshot(req.query.fresh === '1');
-      res.json(data);
+      const { _categoryIds, _tagIds, ...data } = await getSnapshot(req.query.fresh === '1');
+      res.json(viewFor(req.user, data));
     } catch (e) { next(e); }
   });
 
@@ -414,6 +433,7 @@ function inventoryRouter() {
       if (!Array.isArray(changes) || !changes.length || changes.length > 50) throw new BadRequest('changes must be a list of 1–50 edits');
       const plan = changes.map(c => {
         const store = storeFor(c.store);
+        allow(req, store.id);
         if (typeof c.itemId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(c.itemId)) throw new BadRequest('bad itemId');
         const fields = {};
         const price = toCents(c.price, 'price'); if (price !== undefined) fields.price = price;
@@ -465,6 +485,7 @@ function inventoryRouter() {
       };
       const storeIds = Object.keys(b.stores || {});
       if (!storeIds.length) throw new BadRequest('pick at least one store');
+      storeIds.forEach(id => allow(req, storeFor(id).id));
       const specs = storeIds.map(id => {
         const o = b.stores[id] || {};
         return {
@@ -504,7 +525,7 @@ function inventoryRouter() {
       const targets = b.targets;
       if (!Array.isArray(targets) || !targets.length || targets.length > 10) throw new BadRequest('pick at least one store');
       for (const t of targets) {   // check everything before touching Clover
-        storeFor(t?.store);
+        allow(req, storeFor(t?.store).id);
         if (typeof t.itemId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(t.itemId)) throw new BadRequest('bad itemId');
       }
       const want = {};
@@ -573,7 +594,7 @@ function inventoryRouter() {
       const targets = req.body?.targets;
       if (!Array.isArray(targets) || !targets.length || targets.length > 10) throw new BadRequest('pick at least one store');
       for (const t of targets) {   // check everything before touching Clover
-        storeFor(t?.store);
+        allow(req, storeFor(t?.store).id);
         if (typeof t.itemId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(t.itemId)) throw new BadRequest('bad itemId');
       }
       const snap = await getSnapshot(false);

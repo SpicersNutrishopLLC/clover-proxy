@@ -9,7 +9,7 @@
  */
 const express = require('express');
 const { q, tx } = require('./db');
-const { requireAdmin, HttpError, canUseStore } = require('./users');
+const { requireAdmin, HttpError, canUseStore, allowedStores, isAdminRole } = require('./users');
 
 function countsRouter(ctx) {
   const { STORES, storeFor, getSnapshot, fetchStoreItems, setStock, invalidate } = ctx;
@@ -126,7 +126,7 @@ function countsRouter(ctx) {
         q('SELECT item_id, counted FROM count_lines WHERE count_id=$1', [c.id]),
       ]);
       const byId = new Map(fresh.map(i => [i.id, i]));
-      const admin = req.user.role === 'admin';
+      const admin = isAdminRole(req.user.role);
       const changes = [], missing = [];
       let unitsUp = 0, unitsDown = 0, costChange = 0, retailChange = 0;
       for (const l of lines) {
@@ -171,7 +171,7 @@ function countsRouter(ctx) {
   r.post('/counts/:id/discard', async (req, res, next) => {
     try {
       const c = await loadCountFor(req, intParam(req.params.id));
-      if (req.user.role !== 'admin' && c.started_by !== req.user.id) throw new HttpError(403, 'Only an admin or the person who started this count can discard it');
+      if (!isAdminRole(req.user.role) && c.started_by !== req.user.id) throw new HttpError(403, 'Only an admin or the person who started this count can discard it');
       const { rowCount } = await q(`UPDATE counts SET status='discarded', submitted_by=$2, submitted_at=now() WHERE id=$1 AND status='open'`, [c.id, req.user.id]);
       if (!rowCount) throw new HttpError(409, 'This count is no longer open');
       res.json({ ok: true });
@@ -182,6 +182,7 @@ function countsRouter(ctx) {
   r.post('/counts/:id/retry', requireAdmin, async (req, res, next) => {
     try {
       const id = intParam(req.params.id);
+      await loadCountFor(req, id);
       const { rowCount } = await q(`UPDATE counts SET status='submitting' WHERE id=$1 AND status='submitted'
         AND EXISTS (SELECT 1 FROM count_lines WHERE count_id=$1 AND error IS NOT NULL)`, [id]);
       if (!rowCount) throw new HttpError(409, 'Nothing to retry');
@@ -259,17 +260,18 @@ function countsRouter(ctx) {
   r.get('/reports/counts', requireAdmin, async (req, res, next) => {
     try {
       const store = req.query.store ? storeFor(req.query.store).id : null;
+      if (store) allowStore(req, store);
       const { rows } = await q(`SELECT c.*, su.display_name AS started_name, sb.display_name AS submitted_name,
           (SELECT count(*)::int FROM count_lines l WHERE l.count_id=c.id) AS lines
         FROM counts c LEFT JOIN users su ON su.id=c.started_by LEFT JOIN users sb ON sb.id=c.submitted_by
-        WHERE ($1::text IS NULL OR c.store=$1) ORDER BY c.started_at DESC LIMIT 200`, [store]);
+        WHERE ($1::text IS NULL OR c.store=$1) AND c.store = ANY($2) ORDER BY c.started_at DESC LIMIT 200`, [store, allowedStores(req.user)]);
       res.json({ counts: rows.map(c => ({ ...countMeta(c), lines: c.lines })) });
     } catch (e) { next(e); }
   });
 
   r.get('/reports/counts/:id', requireAdmin, async (req, res, next) => {
     try {
-      const c = await loadCount(intParam(req.params.id));
+      const c = await loadCountFor(req, intParam(req.params.id));
       const { rows } = await q(`SELECT l.*, u.display_name AS by FROM count_lines l LEFT JOIN users u ON u.id=l.counted_by
         WHERE count_id=$1 ORDER BY abs(l.counted - COALESCE(l.before_qty, l.counted)) DESC, l.item_name`, [c.id]);
       const nameOf = new Map();
@@ -286,10 +288,11 @@ function countsRouter(ctx) {
   r.get('/reports/edits', requireAdmin, async (req, res, next) => {
     try {
       const store = req.query.store ? storeFor(req.query.store).id : null;
+      if (store) allowStore(req, store);
       const days = Math.min(Math.max(Number(req.query.days) || 90, 1), 730);
       const { rows } = await q(`SELECT a.*, u.display_name AS by FROM audit a LEFT JOIN users u ON u.id=a.user_id
-        WHERE a.source<>'count' AND ($1::text IS NULL OR a.store=$1) AND a.at > now() - ($2 || ' days')::interval
-        ORDER BY a.at DESC LIMIT 1000`, [store, String(days)]);
+        WHERE a.source<>'count' AND ($1::text IS NULL OR a.store=$1) AND a.store = ANY($3) AND a.at > now() - ($2 || ' days')::interval
+        ORDER BY a.at DESC LIMIT 1000`, [store, String(days), allowedStores(req.user)]);
       res.json({ edits: rows.map(a => ({ at: a.at, by: a.by, store: a.store, itemName: a.item_name, field: a.field,
         before: a.before_val === null ? null : Number(a.before_val), after: a.after_val === null ? null : Number(a.after_val),
         beforeText: a.before_text, afterText: a.after_text,

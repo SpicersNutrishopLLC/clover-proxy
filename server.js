@@ -2,9 +2,19 @@ const express = require('express');
 const cors    = require('cors');
 const fetch   = require('node-fetch');
 
+const path        = require('path');
+const compression = require('compression');
+const { inventoryRouter } = require('./inventory');
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
+app.set('trust proxy', 1); // Render sits behind a proxy; needed for per-IP login limits
 
+// ── Nutrishop Inventory (tokens stay on the server) ──
+app.use('/api', compression(), inventoryRouter());
+app.use('/app', compression(), express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
+
+// ── Legacy routes used by MealPrep OS (unchanged) ──
 app.use(cors());
 app.use(express.json());
 

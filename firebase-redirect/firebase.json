@@ -1,11 +1,24 @@
 {
   "hosting": {
+    "site": "nstninventory",
     "public": "public",
     "redirects": [
-      { "source": "**", "destination": "https://clover-proxy-hs3q.onrender.com/app/", "type": 302 }
+      {
+        "source": "**",
+        "destination": "https://clover-proxy-hs3q.onrender.com/app/",
+        "type": 302
+      }
     ],
     "headers": [
-      { "source": "**", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      }
     ]
   }
 }

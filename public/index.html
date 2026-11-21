@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nutrishop — Inventory</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111921">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="NS Inventory">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/favicon-64.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -235,6 +243,7 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
 @media (max-width:700px){
   .header,.totals,.filters,.main{padding-left:16px;padding-right:16px}
   .header{position:static}
+  #installBtn{padding:5px 9px;font-size:11.5px}
   .filters{position:static}
   .brand img{height:28px}
   .tval{font-size:22px}
@@ -253,6 +262,7 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
     <img src="https://cdn.shopify.com/s/files/1/0685/2647/3535/files/NSP_Logo_Updated_10.24.png?v=1730203346" alt="Nutrishop">
     <div class="brand-div"></div>
     <div class="brand-sub">INVENTORY</div>
+    <button class="btn btn-green btn-sm" id="installBtn" type="button" hidden>⬇ Install app</button>
   </div>
   <nav class="tabs" id="tabs" hidden>
     <button data-view="inventory">Inventory</button>
@@ -1769,6 +1779,36 @@ async function boot() {
   }
   startApp(me);
 }
+/* ── Install as an app ── */
+let deferredInstall = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function updateInstallBtn() { $('installBtn').hidden = isStandalone() || !(deferredInstall || isIOS); }
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; updateInstallBtn(); });
+addEventListener('appinstalled', () => { deferredInstall = null; updateInstallBtn(); toast('✅ Installed. Open “NS Inventory” from your home screen.', 6000); });
+$('installBtn').onclick = async () => {
+  if (deferredInstall) {
+    deferredInstall.prompt();
+    try { await deferredInstall.userChoice; } catch {}
+    deferredInstall = null; updateInstallBtn(); return;
+  }
+  openModal(`<div class="mhead"><div class="mtitle">INSTALL ON IPHONE / IPAD</div><button class="x" data-close aria-label="Close">✕</button></div>
+    <div class="mbody">
+      <ol style="padding-left:20px;display:flex;flex-direction:column;gap:12px;font-size:15px;line-height:1.4">
+        <li>Open this page in <b>Safari</b>.</li>
+        <li>Tap the <b>Share</b> button <span style="display:inline-block;border:1px solid var(--border2);border-radius:4px;padding:0 6px">⬆︎</span> at the bottom (or top) of the screen.</li>
+        <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+        <li>Tap <b>Add</b>. The <b>NS Inventory</b> icon appears on your home screen.</li>
+      </ol>
+      <p class="note">Open the app from that icon from now on. You’ll sign in once inside the app.</p>
+    </div>
+    <div class="mfoot"><button class="btn btn-primary" data-close>Got it</button></div>`);
+};
+updateInstallBtn();
+if ('serviceWorker' in navigator && location.pathname.startsWith('/app')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
 fetch(API + '/health').catch(() => {}); // start waking Render right away
 boot();
 </script>

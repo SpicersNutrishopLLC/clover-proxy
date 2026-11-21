@@ -86,6 +86,9 @@ async function migrate() {
       count_id   int
     );
     CREATE INDEX IF NOT EXISTS audit_store_at ON audit(store, at DESC);
+    ALTER TABLE audit ADD COLUMN IF NOT EXISTS before_text text;
+    ALTER TABLE audit ADD COLUMN IF NOT EXISTS after_text text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS stores text[];   -- NULL = every store
   `);
 }
 

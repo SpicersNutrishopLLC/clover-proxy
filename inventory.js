@@ -115,11 +115,12 @@ let cache = null;      // { at, data }
 let inflight = null;   // Promise while a sync runs
 
 async function loadStore(store) {
-  const [items, categories] = await Promise.all([
-    fetchPaged(store, `/v3/merchants/${store.merchant}/items`, { expand: 'itemStock,categories' }),
+  const [items, categories, tags] = await Promise.all([
+    fetchPaged(store, `/v3/merchants/${store.merchant}/items`, { expand: 'itemStock,categories,tags' }),
     fetchPaged(store, `/v3/merchants/${store.merchant}/categories`, {}),
+    fetchPaged(store, `/v3/merchants/${store.merchant}/tags`, {}),
   ]);
-  return { items, categories };
+  return { items, categories, tags };
 }
 
 async function fetchStoreItems(store) {
@@ -138,6 +139,10 @@ function slimItem(i) {
     priceType: i.priceType,
     qty: i.itemStock ? (i.itemStock.quantity ?? 0) : null,
     category: (i.categories?.elements?.[0]?.name || '').trim(),
+    categoryIds: (i.categories?.elements || []).map(c => c.id),
+    isRevenue: i.isRevenue !== false,
+    labels: (i.tags?.elements || []).map(t => t.name.trim()).sort(),
+    labelIds: (i.tags?.elements || []).map(t => t.id),
     hidden: !!i.hidden,
   };
 }
@@ -190,10 +195,13 @@ async function buildSnapshot() {
     syncedAt: new Date().toISOString(),
     stores: STORES.map(s => ({ id: s.id, name: s.name, ok: !!perStore[s.id] })),
     categories,
+    labels: [...new Set(STORES.flatMap(s => (perStore[s.id]?.tags || []).map(t => t.name.trim())))].filter(Boolean).sort(),
     products: mergeStores(perStore),
     errors,
     _categoryIds: Object.fromEntries(STORES.map(s => [s.id,
       Object.fromEntries((perStore[s.id]?.categories || []).map(c => [norm(c.name), c.id]))])),
+    _tagIds: Object.fromEntries(STORES.map(s => [s.id,
+      Object.fromEntries((perStore[s.id]?.tags || []).map(t => [norm(t.name), t.id]))])),
   };
 }
 
@@ -228,6 +236,11 @@ function cleanText(v, field, max, required) {
   if (s.length > max) throw new BadRequest(`${field} is too long (max ${max})`);
   return s;
 }
+function cleanLabels(v) {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > 30) throw new BadRequest('labels must be a list');
+  return [...new Set(v.map(x => cleanText(x, 'label', 64, true)))];
+}
 function storeFor(id) {
   const s = STORE_BY_ID[id];
   if (!s) throw new BadRequest(`unknown store: ${id}`);
@@ -240,22 +253,43 @@ async function setStock(store, itemId, qty) {
     { body: { item: { id: itemId }, quantity: qty } });
 }
 
-async function ensureCategory(store, name, snapshot) {
+/* Find a category or label by name in a store, creating it if it doesn't exist. */
+const namedLocks = new Map();
+async function ensureNamed(store, kind, name, snapshot) {
   if (!name) return null;
-  const ids = snapshot?._categoryIds?.[store.id] || {};
+  const mapKey = kind === 'categories' ? '_categoryIds' : '_tagIds';
+  if (snapshot && !snapshot[mapKey]) snapshot[mapKey] = {};
+  const ids = snapshot ? (snapshot[mapKey][store.id] ||= {}) : {};
   if (ids[norm(name)]) return ids[norm(name)];
-  // Not in the snapshot: look it up fresh, then create if truly missing.
-  const cats = await fetchPaged(store, `/v3/merchants/${store.merchant}/categories`, {});
-  const hit = cats.find(c => norm(c.name) === norm(name));
-  const id = hit ? hit.id : (await clover(store, 'POST', `/v3/merchants/${store.merchant}/categories`, { body: { name } })).id;
-  ids[norm(name)] = id;
-  return id;
+  // One lookup/create at a time per store+name, so parallel saves don't make duplicates.
+  const lockKey = `${store.id}:${kind}:${norm(name)}`;
+  if (namedLocks.has(lockKey)) return namedLocks.get(lockKey);
+  const job = (async () => {
+    const list = await fetchPaged(store, `/v3/merchants/${store.merchant}/${kind}`, {});
+    const hit = list.find(c => norm(c.name) === norm(name));
+    const id = hit ? hit.id : (await clover(store, 'POST', `/v3/merchants/${store.merchant}/${kind}`, { body: { name } })).id;
+    ids[norm(name)] = id;
+    return id;
+  })().finally(() => namedLocks.delete(lockKey));
+  namedLocks.set(lockKey, job);
+  return job;
+}
+const ensureCategory = (store, name, snapshot) => ensureNamed(store, 'categories', name, snapshot);
+
+async function linkCategory(store, itemId, catId, remove) {
+  await clover(store, 'POST', `/v3/merchants/${store.merchant}/category_items`,
+    { query: remove ? { delete: 'true' } : undefined, body: { elems: [{ category: { id: catId }, item: { id: itemId } }] } });
+}
+async function linkTags(store, itemId, tagIds, remove) {
+  if (!tagIds.length) return;
+  await clover(store, 'POST', `/v3/merchants/${store.merchant}/tag_items`,
+    { query: remove ? { delete: 'true' } : undefined, body: { elems: tagIds.map(id => ({ tag: { id }, item: { id: itemId } })) } });
 }
 
 async function createInStore(store, spec, snapshot) {
   const item = await clover(store, 'POST', `/v3/merchants/${store.merchant}/items`, {
     body: {
-      name: spec.name, price: spec.price, cost: spec.cost, priceType: 'FIXED',
+      name: spec.name, price: spec.price, cost: spec.cost, priceType: 'FIXED', isRevenue: spec.isRevenue !== false,
       ...(spec.sku ? { sku: spec.sku } : {}), ...(spec.code ? { code: spec.code } : {}),
     },
   });
@@ -265,14 +299,21 @@ async function createInStore(store, spec, snapshot) {
   if (spec.category) {
     try {
       const catId = await ensureCategory(store, spec.category, snapshot);
-      await clover(store, 'POST', `/v3/merchants/${store.merchant}/category_items`,
-        { body: { elems: [{ category: { id: catId }, item: { id: item.id } }] } });
+      await linkCategory(store, item.id, catId);
     } catch (e) { warnings.push(`category not set: ${e.message}`); }
+  }
+  let labelIds = [];
+  if (spec.labels?.length) {
+    try {
+      labelIds = await Promise.all(spec.labels.map(l => ensureNamed(store, 'tags', l, snapshot)));
+      await linkTags(store, item.id, labelIds);
+    } catch (e) { warnings.push(`labels not set: ${e.message}`); labelIds = []; }
   }
   return {
     item: { id: item.id, name: spec.name, sku: spec.sku, code: spec.code, price: spec.price, cost: spec.cost,
       priceType: 'FIXED', qty: warnings.some(w => w.startsWith('stock')) ? null : spec.qty,
-      category: spec.category, hidden: false },
+      category: spec.category, categoryIds: [], isRevenue: spec.isRevenue !== false,
+      labels: labelIds.length ? [...spec.labels].sort() : [], labelIds, hidden: false },
     warnings,
   };
 }
@@ -294,6 +335,13 @@ async function logEdits(userId, storeId, itemId, before, saved, source, created)
          saved.cost ?? ref.cost ?? null, saved.price ?? ref.price ?? null, source]);
     } catch (e) { console.error('[audit]', e.message); }
   }
+}
+
+async function logText(userId, storeId, itemId, itemName, field, before, after, source) {
+  try {
+    await db.q(`INSERT INTO audit (user_id, store, item_id, item_name, field, before_text, after_text, source)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [userId, storeId, itemId, (itemName || '').trim() || null, field, before, after, source]);
+  } catch (e) { console.error('[audit]', e.message); }
 }
 
 /* ── Router ── */
@@ -330,6 +378,7 @@ function inventoryRouter() {
   }
 
   // Database setup runs once at start; requests wait for it.
+  users.setStoreIds(STORES.map(s => s.id));
   const counts = countsRouter({ STORES, storeFor, getSnapshot, fetchStoreItems, setStock, invalidate });
   const ready = (async () => {
     await db.migrate();
@@ -409,6 +458,8 @@ function inventoryRouter() {
         sku: cleanText(b.sku, 'SKU', 64),
         code: cleanText(b.code, 'UPC', 64),
         category: cleanText(b.category, 'category', 64),
+        isRevenue: b.isRevenue !== false,
+        labels: cleanLabels(b.labels),
         price: toCents(b.price ?? 0, 'price'),
         cost: toCents(b.cost ?? 0, 'cost'),
       };
@@ -434,6 +485,111 @@ function inventoryRouter() {
             { price: spec.price, cost: spec.cost, ...(r.item.qty !== null ? { qty: spec.qty } : {}) }, 'create', r.item);
           return { store: store.id, ok: true, item: r.item, errors: r.warnings };
         } catch (e) { return { store: store.id, ok: false, errors: [e.message] }; }
+      }));
+      invalidate();
+      res.json({ results });
+    } catch (e) { next(e); }
+  });
+
+
+  /*
+   * POST /api/items/details
+   * { targets: [{store, itemId}], category?, sku?, code?, isRevenue?, labels? }
+   * Only fields present are changed. category '' removes the category;
+   * new category/label names are created in that store.
+   */
+  router.post('/items/details', async (req, res, next) => {
+    try {
+      const b = req.body || {};
+      const targets = b.targets;
+      if (!Array.isArray(targets) || !targets.length || targets.length > 10) throw new BadRequest('pick at least one store');
+      for (const t of targets) {   // check everything before touching Clover
+        storeFor(t?.store);
+        if (typeof t.itemId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(t.itemId)) throw new BadRequest('bad itemId');
+      }
+      const want = {};
+      if (b.category !== undefined) want.category = cleanText(b.category, 'category', 64);
+      if (b.sku !== undefined) want.sku = cleanText(b.sku, 'SKU', 64);
+      if (b.code !== undefined) want.code = cleanText(b.code, 'UPC', 64);
+      if (b.isRevenue !== undefined) want.isRevenue = !!b.isRevenue;
+      if (b.labels !== undefined) want.labels = cleanLabels(b.labels);
+      if (!Object.keys(want).length) throw new BadRequest('nothing to change');
+      const snap = await getSnapshot(false);
+      const results = await Promise.all(targets.map(async t => {
+        const store = storeFor(t.store);
+        if (typeof t.itemId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(t.itemId)) throw new BadRequest('bad itemId');
+        const before = findItem(snap, store.id, t.itemId);
+        if (!before) return { store: store.id, itemId: t.itemId, ok: false, errors: ['Item not found — press Sync and try again'] };
+        const out = { store: store.id, itemId: t.itemId, ok: true, errors: [], saved: {} };
+        const fields = {};
+        if (want.sku !== undefined && want.sku !== before.sku) fields.sku = want.sku;
+        if (want.code !== undefined && want.code !== before.code) fields.code = want.code;
+        if (want.isRevenue !== undefined && want.isRevenue !== before.isRevenue) fields.isRevenue = want.isRevenue;
+        if (Object.keys(fields).length) {
+          try { await clover(store, 'POST', `/v3/merchants/${store.merchant}/items/${t.itemId}`, { body: fields }); Object.assign(out.saved, fields); }
+          catch (e) { out.ok = false; out.errors.push(`SKU/UPC/revenue: ${e.message}`); }
+        }
+        if (want.category !== undefined && norm(want.category) !== norm(before.category)) {
+          try {
+            for (const old of before.categoryIds || []) await linkCategory(store, t.itemId, old, true);
+            let newIds = [];
+            if (want.category) { const id = await ensureCategory(store, want.category, snap); await linkCategory(store, t.itemId, id); newIds = [id]; }
+            out.saved.category = want.category; out.saved.categoryIds = newIds;
+          } catch (e) { out.ok = false; out.errors.push(`category: ${e.message}`); }
+        }
+        if (want.labels !== undefined) {
+          const have = new Map((before.labels || []).map((l, i) => [norm(l), (before.labelIds || [])[i]]));
+          const wantSet = new Set(want.labels.map(norm));
+          const remove = [...have].filter(([n]) => !wantSet.has(n)).map(([, id]) => id).filter(Boolean);
+          const add = want.labels.filter(l => !have.has(norm(l)));
+          if (remove.length || add.length) {
+            try {
+              await linkTags(store, t.itemId, remove, true);
+              const addIds = await Promise.all(add.map(l => ensureNamed(store, 'tags', l, snap)));
+              await linkTags(store, t.itemId, addIds);
+              const keptIds = [...have].filter(([n]) => wantSet.has(n)).map(([, id]) => id);
+              out.saved.labels = [...want.labels].sort(); out.saved.labelIds = [...keptIds, ...addIds];
+            } catch (e) { out.ok = false; out.errors.push(`labels: ${e.message}`); }
+          }
+        }
+        for (const [f, label] of [['category', 'category'], ['sku', 'sku'], ['code', 'code'], ['isRevenue', 'revenue'], ['labels', 'labels']]) {
+          if (out.saved[f] === undefined) continue;
+          const txt = v => Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? (v ? 'Revenue' : 'Non-revenue') : String(v ?? '');
+          await logText(req.user.id, store.id, t.itemId, before.name, label, txt(before[f]), txt(out.saved[f]), 'edit');
+        }
+        return out;
+      }));
+      invalidate();
+      res.json({ results });
+    } catch (e) { next(e); }
+  });
+
+  /*
+   * POST /api/items/delete
+   * { targets: [{store, itemId}] } — deletes the item in each listed store.
+   */
+  router.post('/items/delete', async (req, res, next) => {
+    try {
+      const targets = req.body?.targets;
+      if (!Array.isArray(targets) || !targets.length || targets.length > 10) throw new BadRequest('pick at least one store');
+      for (const t of targets) {   // check everything before touching Clover
+        storeFor(t?.store);
+        if (typeof t.itemId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(t.itemId)) throw new BadRequest('bad itemId');
+      }
+      const snap = await getSnapshot(false);
+      const results = await Promise.all(targets.map(async t => {
+        const store = storeFor(t.store);
+        if (typeof t.itemId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(t.itemId)) throw new BadRequest('bad itemId');
+        const before = findItem(snap, store.id, t.itemId);
+        try {
+          await clover(store, 'DELETE', `/v3/merchants/${store.merchant}/items/${t.itemId}`);
+          try {
+            await db.q(`INSERT INTO audit (user_id, store, item_id, item_name, field, before_val, after_val, unit_cost, unit_price, source, before_text, after_text)
+              VALUES ($1,$2,$3,$4,'deleted',$5,0,$6,$7,'delete','In inventory','Deleted')`,
+              [req.user.id, store.id, t.itemId, before?.name?.trim() || null, before?.qty ?? null, before?.cost ?? null, before?.price ?? null]);
+          } catch (e) { console.error('[audit]', e.message); }
+          return { store: store.id, itemId: t.itemId, ok: true };
+        } catch (e) { return { store: store.id, itemId: t.itemId, ok: false, error: e.message }; }
       }));
       invalidate();
       res.json({ results });

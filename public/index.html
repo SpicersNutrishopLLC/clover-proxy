@@ -160,6 +160,14 @@ tr.click{cursor:pointer}
   .stepper input{width:60px}
 }
 
+/* label picker */
+.lbls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.lbl{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border2);border-radius:14px;padding:4px 10px;font-size:12.5px;cursor:pointer;user-select:none;color:var(--ink2)}
+.lbl input{width:14px;height:14px}
+.lbl:has(input:checked){border-color:var(--blue);color:var(--ink);background:var(--blue-dim)}
+.field.changed .inp,.lbls.changed{outline:1px solid var(--amber);outline-offset:2px;border-radius:6px}
+.varies{font-size:11px;color:var(--amber)}
+
 /* states */
 .center{padding:80px 24px;text-align:center;color:var(--ink2)}
 .spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 18px}
@@ -410,7 +418,7 @@ $('logoutBtn').onclick = async () => {
 
 /* ── Data ── */
 function indexProduct(p) {
-  p._hay = norm([p.name, p.category, ...Object.values(p.stores).flatMap(i => [i.sku, i.code])].join(' '));
+  p._hay = norm([p.name, p.category, ...Object.values(p.stores).flatMap(i => [i.sku, i.code, ...(i.labels || [])])].join(' '));
 }
 async function sync(fresh) {
   const btn = $('syncBtn'); btn.disabled = true; btn.textContent = '⏳ Syncing';
@@ -419,7 +427,7 @@ async function sync(fresh) {
   const slow = setTimeout(() => { const m = $('loadMsg'); if (m) m.innerHTML = 'Waking the server…<div class="hint">The first load after a quiet period can take up to a minute.</div>'; }, 5000);
   try {
     const d = await api('/inventory' + (fresh ? '?fresh=1' : ''));
-    S.stores = d.stores; S.categories = d.categories; S.syncedAt = new Date(d.syncedAt);
+    S.stores = d.stores; S.categories = d.categories; S.labels = d.labels || []; S.syncedAt = new Date(d.syncedAt);
     S.products = d.products; S.products.forEach(indexProduct);
     if (S.loc !== 'all' && !S.stores.some(s => s.id === S.loc)) S.loc = 'all';
     buildFilters();
@@ -586,7 +594,8 @@ function render() {
     let cq = 0, cr = 0, cc = 0;
     const body = g.map(({ p, st }) => {
       cq += st.qty; cr += st.retail; cc += st.cost;
-      const sku = Object.values(p.stores)[0]?.sku;
+      const f0 = Object.values(p.stores)[0] || {};
+      const sku = [f0.sku, ...(f0.labels || []), f0.isRevenue === false ? 'Non-revenue' : ''].filter(Boolean).join(' · ');
       const locTd = all ? S.stores.map(s => `<td>${qtyCell(p.stores[s.id]?.qty ?? (p.stores[s.id] ? 0 : null))}</td>`).join('') : '';
       return `<tr><td>${esc(p.name)}<button class="edit" data-edit="${esc(p.key)}">✎ EDIT</button>${sku ? `<span class="sku">${esc(sku)}</span>` : ''}</td>
         <td>${priceCell(st.pmin, st.pmax)}</td><td class="a">${priceCell(st.cmin, st.cmax)}</td>${locTd}
@@ -669,6 +678,17 @@ function openEdit(key) {
     <div class="mhead"><div><div class="mtitle">${esc(p.name)}</div><div class="msub">${esc(p.category)}${ids.length ? ' · ' + esc([...new Set(ids)].join(' · ')) : ''}</div></div><button class="x" data-close aria-label="Close">✕</button></div>
     <div class="mbody">
       <div>
+        <div class="sect-t">DETAILS — EVERY STORE THAT CARRIES IT${detailsVary(p) ? ' <span class="varies">(currently differs between stores — showing ' + esc(storeName(Object.keys(p.stores)[0])) + ')</span>' : ''}</div>
+        <div class="grid2">
+          <div class="field" data-df="category"><label for="dCat">Category</label><input class="inp text" id="dCat" list="catList" autocomplete="off" value="${esc(p.category === 'Uncategorized' ? '' : p.category)}" placeholder="Pick or type a new one"></div>
+          <div class="field" data-df="sku"><label for="dSku">SKU</label><input class="inp" id="dSku" maxlength="64" autocomplete="off" value="${esc(first.sku)}"></div>
+          <div class="field" data-df="code"><label for="dCode">UPC / barcode</label><input class="inp" id="dCode" maxlength="64" autocomplete="off" value="${esc(first.code)}"></div>
+          <div class="field" data-df="isRevenue"><label>Revenue</label><label class="chip"><input type="checkbox" id="dRev"${first.isRevenue !== false ? ' checked' : ''}> Revenue item (counts toward sales)</label></div>
+          <div class="field full" data-df="labels"><label>Labels</label>${labelPicker('d', first.labels || [])}</div>
+        </div>
+        <datalist id="catList">${S.categories.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+      </div>
+      <div>
         <div class="sect-t">SET FOR EVERY STORE</div>
         <div class="quick">
           <input class="inp" id="allPrice" type="number" min="0" step="0.01" placeholder="Price $" style="width:110px">
@@ -685,9 +705,16 @@ function openEdit(key) {
         <div class="note" style="margin-top:8px">Only changed fields are sent to Clover (outlined in amber). Tick a store that doesn’t carry this item to add it there.</div>
       </div>
     </div>
-    <div class="mfoot"><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="saveBtn">Save to Clover</button></div>`);
+    <div class="mfoot"><button class="btn btn-ghost btn-sm" id="delBtn" style="color:var(--red)">🗑 Delete…</button><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="saveBtn">Save to Clover</button></div>`);
 
   const m = $('modal');
+  wireLabelPicker('d', () => touch('labels'));
+  const touch = f => m.querySelector(`[data-df="${f}"]`).classList.add('changed');
+  $('dCat').addEventListener('input', () => touch('category'));
+  $('dSku').addEventListener('input', () => touch('sku'));
+  $('dCode').addEventListener('input', () => touch('code'));
+  $('dRev').addEventListener('change', () => touch('isRevenue'));
+  $('delBtn').onclick = () => openDelete(p);
   m.querySelectorAll('[name=add]').forEach(cb => cb.onchange = () => {
     cb.closest('tr').querySelectorAll('.inp').forEach(i => i.disabled = !cb.checked);
     markChanged();
@@ -737,18 +764,42 @@ async function saveEdit() {
     }
   }
   if (bad) { setStatus('Fill in every highlighted box (prices can’t be blank or negative).', 'bad'); return; }
-  if (!changes.length && !Object.keys(adds).length) { setStatus('Nothing changed.'); return; }
+  const touched = f => m.querySelector(`[data-df="${f}"]`).classList.contains('changed');
+  const details = {};
+  if (touched('category')) details.category = $('dCat').value.trim();
+  if (touched('sku')) details.sku = $('dSku').value.trim();
+  if (touched('code')) details.code = $('dCode').value.trim();
+  if (touched('isRevenue')) details.isRevenue = $('dRev').checked;
+  if (touched('labels')) details.labels = pickedLabels('d');
+  const targets = Object.entries(p.stores).map(([store, it]) => ({ store, itemId: it.id }));
+  const hasDetails = Object.keys(details).length > 0;
+  if (!changes.length && !Object.keys(adds).length && !hasDetails) { setStatus('Nothing changed.'); return; }
 
   const btn = $('saveBtn'); btn.disabled = true; btn.textContent = 'Saving…'; modalBusy = true;
   setStatus('Sending to Clover…');
   const errors = [], saved = [];
   try {
-    const [upd, crt] = await Promise.all([
+    const f0 = Object.values(p.stores)[0] || {};
+    const [upd, crt, det] = await Promise.all([
       changes.length ? api('/items/update', { method: 'POST', body: { changes } }) : { results: [] },
       Object.keys(adds).length ? api('/items/create', { method: 'POST', body: {
-        name: p.name, sku: Object.values(p.stores)[0]?.sku || '', code: Object.values(p.stores)[0]?.code || '',
-        category: p.category === 'Uncategorized' ? '' : p.category, stores: adds } }) : { results: [] },
+        name: p.name, sku: details.sku ?? f0.sku ?? '', code: details.code ?? f0.code ?? '',
+        category: details.category ?? (p.category === 'Uncategorized' ? '' : p.category),
+        isRevenue: details.isRevenue ?? f0.isRevenue !== false, labels: details.labels ?? f0.labels ?? [], stores: adds } }) : { results: [] },
+      hasDetails ? api('/items/details', { method: 'POST', body: { targets, ...details } }) : { results: [] },
     ]);
+    for (const r of det.results) {
+      const it = p.stores[r.store];
+      if (it && r.itemId === it.id) Object.assign(it, r.saved);
+      if (r.saved?.category !== undefined) {
+        p.category = r.saved.category || 'Uncategorized';
+        if (r.saved.category && !S.categories.includes(r.saved.category)) S.categories.push(r.saved.category);
+      }
+      (r.saved?.labels || []).forEach(l => { if (!S.labels.includes(l)) S.labels.push(l); });
+      if (!r.ok) errors.push(`${storeName(r.store)}: ${r.errors.join('; ')}`);
+      else if (!saved.includes(storeName(r.store))) saved.push(storeName(r.store));
+    }
+    p.sku = Object.values(p.stores)[0]?.sku; p.code = Object.values(p.stores)[0]?.code;
     for (const r of upd.results) {
       const it = p.stores[r.store];
       if (it && r.itemId === it.id) Object.assign(it, r.saved);
@@ -768,7 +819,7 @@ async function saveEdit() {
     errors.push(err.message);
   }
   modalBusy = false;
-  indexProduct(p); render();
+  indexProduct(p); buildFilters(); render();
   btn.disabled = false; btn.textContent = 'Save to Clover';
   if (errors.length) {
     setStatus((saved.length ? `Saved: ${saved.join(', ')}. ` : '') + 'Problems — ' + errors.join(' · '), saved.length ? 'warn' : 'bad');
@@ -783,6 +834,64 @@ function openEditKeepStatus(p) {
   const msg = $('mStatus').textContent, cls = $('mStatus').className;
   openEdit(p.key);
   $('mStatus').textContent = msg; $('mStatus').className = cls;
+}
+
+/* ── Labels picker (shared by edit + new product) ── */
+function labelPicker(prefix, selected) {
+  const sel = new Set(selected.map(norm));
+  const all = [...new Set([...S.labels, ...selected])].sort((a, b) => a.localeCompare(b));
+  return `<div class="lbls" id="${prefix}Lbls">${all.map(l => `<label class="lbl"><input type="checkbox" value="${esc(l)}"${sel.has(norm(l)) ? ' checked' : ''}>${esc(l)}</label>`).join('')}
+    <input class="inp text" id="${prefix}NewLbl" placeholder="New label…" maxlength="64" style="width:140px;padding:5px 9px;font-size:12.5px">
+    <button class="btn btn-ghost btn-sm" type="button" id="${prefix}AddLbl">Add</button></div>`;
+}
+function wireLabelPicker(prefix, onChange) {
+  const box = $(prefix + 'Lbls');
+  box.addEventListener('change', e => { if (e.target.type === 'checkbox') onChange(); });
+  const add = () => {
+    const v = $(prefix + 'NewLbl').value.trim(); if (!v) return;
+    const existing = [...box.querySelectorAll('input[type=checkbox]')].find(c => norm(c.value) === norm(v));
+    if (existing) existing.checked = true;
+    else $(prefix + 'NewLbl').insertAdjacentHTML('beforebegin', `<label class="lbl"><input type="checkbox" value="${esc(v)}" checked>${esc(v)}</label>`);
+    $(prefix + 'NewLbl').value = ''; onChange();
+  };
+  $(prefix + 'AddLbl').onclick = add;
+  $(prefix + 'NewLbl').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+}
+const pickedLabels = prefix => [...$(prefix + 'Lbls').querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
+function detailsVary(p) {
+  const its = Object.values(p.stores);
+  const sig = i => JSON.stringify([i.category, i.sku, i.code, i.isRevenue !== false, i.labels || []]);
+  return its.some(i => sig(i) !== sig(its[0]));
+}
+
+/* ── Delete product ── */
+function openDelete(p) {
+  const carried = S.stores.filter(s => p.stores[s.id]);
+  openModal(`<div class="mhead"><div><div class="mtitle">DELETE ${esc(p.name.toUpperCase())}</div><div class="msub">Removes the item from Clover at the stores you tick</div></div><button class="x" data-close aria-label="Close">✕</button></div>
+    <div class="mbody">
+      <div>${carried.map(s => { const it = p.stores[s.id]; return `<label class="chip" style="margin-bottom:8px"><input type="checkbox" name="delStore" value="${s.id}" checked><span class="dot ${s.id}"></span>${esc(s.name)} <span class="note">— ${num(it.qty ?? 0)} in stock</span></label>`; }).join('')}</div>
+      <p class="note">This can’t be undone from this app. Past sales stay in Clover’s reports. To bring the item back later, use “+ New product”.</p>
+      <label class="field"><span class="note">Type <b>DELETE</b> to confirm</span><input class="inp text" id="delConfirm" autocomplete="off" style="max-width:200px"></label>
+    </div>
+    <div class="mfoot"><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="delGo" style="background:var(--red)" disabled>Delete from Clover</button></div>`);
+  const sync = () => { $('delGo').disabled = $('delConfirm').value.trim().toUpperCase() !== 'DELETE' || !$('modal').querySelector('[name=delStore]:checked'); };
+  $('delConfirm').addEventListener('input', sync);
+  $('modal').querySelectorAll('[name=delStore]').forEach(c => c.onchange = sync);
+  $('delGo').onclick = async () => {
+    const targets = [...$('modal').querySelectorAll('[name=delStore]:checked')].map(c => ({ store: c.value, itemId: p.stores[c.value].id }));
+    $('delGo').disabled = true; modalBusy = true; setStatus('Deleting…');
+    try {
+      const { results } = await api('/items/delete', { method: 'POST', body: { targets } });
+      modalBusy = false;
+      const ok = results.filter(r => r.ok), bad = results.filter(r => !r.ok);
+      ok.forEach(r => delete p.stores[r.store]);
+      if (!Object.keys(p.stores).length) S.products = S.products.filter(x => x !== p);
+      render();
+      if (bad.length) { setStatus((ok.length ? `Deleted at ${ok.map(r => storeName(r.store)).join(', ')}. ` : '') + 'Problems — ' + bad.map(r => `${storeName(r.store)}: ${r.error}`).join(' · '), 'bad'); return; }
+      toast(`🗑 Deleted ${p.name} at ${ok.map(r => storeName(r.store)).join(', ')}`);
+      closeModal();
+    } catch (e) { modalBusy = false; if (!(e instanceof SignedOut)) { setStatus(e.message, 'bad'); sync(); } }
+  };
 }
 
 /* ── New product ── */
@@ -803,6 +912,8 @@ function openNew() {
         <div class="field"><label for="nPrice">Retail price $ *</label><input class="inp" id="nPrice" type="number" min="0" step="0.01"></div>
         <div class="field"><label for="nCost">Cost $ *</label><input class="inp" id="nCost" type="number" min="0" step="0.01"></div>
         <div class="field"><label for="nCode">UPC / barcode</label><input class="inp" id="nCode" maxlength="64" autocomplete="off"></div>
+        <div class="field"><label>Revenue</label><label class="chip"><input type="checkbox" id="nRev" checked> Revenue item (counts toward sales)</label></div>
+        <div class="field full"><label>Labels</label>${labelPicker('n', [])}</div>
       </div>
       <div>
         <div class="sect-t" style="display:flex;justify-content:space-between;align-items:center">STORES
@@ -833,6 +944,7 @@ function openNew() {
     m.querySelectorAll('[name=on]').forEach(cb => { if (!cb.disabled) cb.checked = b.dataset.pick === 'all'; });
     checkDupes();
   });
+  wireLabelPicker('n', () => {});
   $('createBtn').onclick = createProduct;
   $('nName').focus();
 }
@@ -864,6 +976,7 @@ async function createProduct() {
   try {
     const r = await api('/items/create', { method: 'POST', body: {
       name, category, sku: $('nSku').value.trim(), code: $('nCode').value.trim(),
+      isRevenue: $('nRev').checked, labels: pickedLabels('n'),
       price: price.value, cost: cost.value, stores } });
     modalBusy = false;
     const ok = r.results.filter(x => x.ok), errs = r.results.filter(x => x.errors?.length);
@@ -872,6 +985,7 @@ async function createProduct() {
       if (!p) { p = { key: 'new:' + norm(name) + ':' + Date.now(), name, category: category || 'Uncategorized', stores: {} }; S.products.push(p); S.products.sort((a, b) => a.name.localeCompare(b.name)); }
       ok.forEach(x => { p.stores[x.store] = x.item; });
       if (category && !S.categories.includes(category)) S.categories.push(category);
+      pickedLabels('n').forEach(l => { if (!S.labels.includes(l)) S.labels.push(l); });
       indexProduct(p); buildFilters(); render();
     }
     if (errs.length) {
@@ -899,7 +1013,7 @@ function exportCSV() {
   const rows = filtered();
   if (!rows.length) { toast('Nothing to export'); return; }
   const d = c => (c / 100).toFixed(2);
-  const head = ['Category', 'Item', 'SKU', 'UPC',
+  const head = ['Category', 'Item', 'SKU', 'UPC', 'Revenue item', 'Labels',
     ...S.stores.flatMap(s => [`${s.name} Price`, `${s.name} Cost`, `${s.name} Qty`]),
     'Total Qty', 'Retail Total', 'Cost Total'];
   const lines = [head.map(csvCell).join(',')];
@@ -907,7 +1021,7 @@ function exportCSV() {
   for (const { p } of rows) {
     const st = stats(p, ids);
     const first = Object.values(p.stores)[0] || {};
-    lines.push([p.category, p.name, first.sku, first.code,
+    lines.push([p.category, p.name, first.sku, first.code, first.isRevenue === false ? 'No' : 'Yes', (first.labels || []).join('; '),
       ...S.stores.flatMap(s => { const it = p.stores[s.id]; return it ? [d(it.price), d(it.cost), it.qty ?? 0] : ['', '', '']; }),
       st.qty, d(st.retail), d(st.cost)].map(csvCell).join(','));
   }
@@ -1346,6 +1460,13 @@ async function renderEdits() {
   if (!edits.length) { $('rBody').innerHTML = '<div class="center">No manual changes in this period.</div>'; return; }
   const qtyNet = edits.reduce((a, e) => a + (e.costChange || 0), 0);
   const fmtVal = (f, v) => v === null ? '—' : f === 'qty' ? num(v) : money(v);
+  const editText = (e, fv) => {
+    if (e.field === 'deleted') return `<span class="badge b-failed">DELETED</span>${e.before !== null ? ` <span class="note">had ${num(e.before)} in stock</span>` : ''}`;
+    const label = { qty: 'Qty', price: 'Price', cost: 'Cost', category: 'Category', sku: 'SKU', code: 'UPC', revenue: 'Revenue', labels: 'Labels' }[e.field] || e.field;
+    const isText = e.beforeText !== null || e.afterText !== null;
+    const b = isText ? esc(e.beforeText || '—') : fv(e.field, e.before), a = isText ? esc(e.afterText || '—') : fv(e.field, e.after);
+    return `${e.source === 'create' ? '<span class="badge b-submitted">NEW</span> ' : ''}${label} ${b} → <b>${a}</b>`;
+  };
   $('rBody').innerHTML = `<div class="stats">
       <div class="tcard"><div class="tlabel">CHANGES</div><div class="tval">${num(edits.length)}</div></div>
       <div class="tcard"><div class="tlabel">COST VALUE CHANGE FROM QTY EDITS</div><div class="tval">${signedMoney(qtyNet)}</div></div>
@@ -1353,7 +1474,7 @@ async function renderEdits() {
     <div class="list"><div class="tw" style="border:none"><table>
     <thead><tr><th>ITEM</th><th>WHEN</th><th>STORE</th><th>BY</th><th>CHANGE</th><th>COST IMPACT</th></tr></thead>
     <tbody>${edits.map(e => `<tr><td>${esc(e.itemName || '')}</td><td>${when(e.at)}</td><td>${esc(storeLabel(e.store))}</td><td>${esc(e.by || '')}</td>
-      <td>${e.source === 'create' ? `<span class="badge b-submitted">NEW</span> ` : ''}${{ qty: 'Qty', price: 'Price', cost: 'Cost' }[e.field]} ${fmtVal(e.field, e.before)} → <b>${fmtVal(e.field, e.after)}</b></td>
+      <td>${editText(e, fmtVal)}</td>
       <td>${e.costChange === null ? '—' : signedMoney(e.costChange)}</td></tr>`).join('')}</tbody>
     </table></div></div>`;
 }
@@ -1370,8 +1491,13 @@ function downloadCSV(name, rows) {
 
 /* ════════════════ EMPLOYEES (admin) ════════════════ */
 let USERS = [];
+function storePicker(prefix, selected) {
+  return `<div class="lbls" id="${prefix}Stores">${C.stores.map(s => `<label class="lbl"><input type="checkbox" value="${s.id}"${!selected || selected.includes(s.id) ? ' checked' : ''}><span class="dot ${s.id}"></span>${esc(s.name)}</label>`).join('')}</div>`;
+}
+const pickedStores = prefix => [...$(prefix + 'Stores').querySelectorAll('input:checked')].map(c => c.value);
 async function usersHome() {
   const el = $('usersView');
+  if (!C.stores.length) { try { C.stores = (await api('/counts/stores')).stores; } catch {} }
   el.innerHTML = `<h2>EMPLOYEES</h2>
     <p class="lead">Give each person their own sign-in so counts and changes show who did them. <b>Employees</b> can only do inventory counts. <b>Admins</b> can do everything, including prices, reports and this page.</p>
     <form class="card" id="addUser" style="margin-bottom:16px">
@@ -1382,6 +1508,7 @@ async function usersHome() {
         <div class="field"><label for="uPass">Password</label><input class="inp text" id="uPass" type="text" autocomplete="new-password" minlength="6" placeholder="6+ characters" required></div>
         <div class="field"><label for="uRole">Role</label><select class="inp text" id="uRole"><option value="employee">Employee (counts only)</option><option value="admin">Admin (everything)</option></select></div>
       </div>
+      <div class="field" id="uStoresBox"><label>Stores they can count</label>${storePicker('u', null)}</div>
       <div class="crow"><button class="btn btn-green" type="submit">Add person</button><span class="status" id="uStatus"></span></div>
     </form>
     <div id="uList">${spinner('Loading…')}</div>`;
@@ -1390,11 +1517,13 @@ async function usersHome() {
     $('uUser').value = $('uName').value.trim().toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9._-]/g, '') || '';
   });
   $('uUser').addEventListener('input', () => { $('uUser').dataset.touched = '1'; });
+  $('uRole').onchange = () => { $('uStoresBox').hidden = $('uRole').value === 'admin'; };
   $('addUser').addEventListener('submit', async e => {
     e.preventDefault();
     const st = $('uStatus');
     try {
-      const r = await api('/users', { method: 'POST', body: { name: $('uName').value, username: $('uUser').value, password: $('uPass').value, role: $('uRole').value } });
+      const r = await api('/users', { method: 'POST', body: { name: $('uName').value, username: $('uUser').value, password: $('uPass').value, role: $('uRole').value,
+        ...($('uRole').value === 'employee' ? { stores: pickedStores('u') } : {}) } });
       toast(`✅ Added ${r.user.name} — username “${r.user.username}”`, 5000);
       usersHome();
     } catch (err) { if (!(err instanceof SignedOut)) { st.textContent = err.message; st.className = 'status bad'; } }
@@ -1404,10 +1533,10 @@ async function usersHome() {
 }
 function renderUsers() {
   $('uList').innerHTML = `<div class="list"><div class="tw" style="border:none"><table>
-    <thead><tr><th>NAME</th><th>USERNAME</th><th>ROLE</th><th>STATUS</th><th>LAST SIGN-IN</th><th></th></tr></thead>
+    <thead><tr><th>NAME</th><th>USERNAME</th><th>ROLE</th><th>STORES</th><th>STATUS</th><th>LAST SIGN-IN</th><th></th></tr></thead>
     <tbody>${USERS.map(u => `<tr${u.active ? '' : ' style="opacity:.5"'}>
       <td>${esc(u.name)}${u.id === ME.id ? ' <span class="tag">YOU</span>' : ''}</td><td>${esc(u.username)}</td>
-      <td>${u.role === 'admin' ? 'Admin' : 'Employee'}</td><td>${u.active ? 'Active' : 'Turned off'}</td>
+      <td>${u.role === 'admin' ? 'Admin' : 'Employee'}</td><td>${u.stores ? esc(u.stores.map(storeLabel).join(', ')) : 'All'}</td><td>${u.active ? 'Active' : 'Turned off'}</td>
       <td>${u.lastLoginAt ? when(u.lastLoginAt) : 'Never'}</td>
       <td><button class="edit" data-uedit="${u.id}">✎ EDIT</button></td></tr>`).join('')}</tbody>
   </table></div></div>`;
@@ -1421,9 +1550,11 @@ $('usersView').addEventListener('click', e => {
       <div class="field"><label for="eUser">Username</label><input class="inp text" id="eUser" value="${esc(u.username)}" maxlength="32" autocapitalize="none"></div>
       <div class="field"><label for="ePass">New password</label><input class="inp text" id="ePass" type="text" autocomplete="new-password" placeholder="Leave blank to keep current"></div>
       <div class="field"><label for="eRole">Role</label><select class="inp text" id="eRole"><option value="employee"${u.role === 'employee' ? ' selected' : ''}>Employee (counts only)</option><option value="admin"${u.role === 'admin' ? ' selected' : ''}>Admin (everything)</option></select></div>
+      <div class="field full" id="eStoresBox"${u.role === 'admin' ? ' hidden' : ''}><label>Stores they can count</label>${storePicker('e', u.stores)}</div>
       <label class="chip field full"><input type="checkbox" id="eActive"${u.active ? ' checked' : ''}> Can sign in (untick to turn off this person’s access)</label>
     </div><p class="note">Changing a password, role or access signs that person out on all their devices.</p></div>
     <div class="mfoot"><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="eSave">Save</button></div>`);
+  $('eRole').onchange = () => { $('eStoresBox').hidden = $('eRole').value === 'admin'; };
   $('eSave').onclick = async () => {
     const body = {};
     if ($('eName').value.trim() !== u.name) body.name = $('eName').value;
@@ -1431,6 +1562,12 @@ $('usersView').addEventListener('click', e => {
     if ($('ePass').value) body.password = $('ePass').value;
     if ($('eRole').value !== u.role) body.role = $('eRole').value;
     if ($('eActive').checked !== u.active) body.active = $('eActive').checked;
+    if ($('eRole').value === 'employee') {
+      const picked = pickedStores('e');
+      if (!picked.length) return setStatus('Pick at least one store.', 'bad');
+      const cur = u.stores || C.stores.map(s => s.id);
+      if (picked.slice().sort().join() !== cur.slice().sort().join()) body.stores = picked;
+    }
     if (!Object.keys(body).length) return closeModal();
     try {
       const r = await api(`/users/${u.id}`, { method: 'POST', body });

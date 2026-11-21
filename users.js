@@ -52,7 +52,20 @@ async function getUser(id) {
 }
 const forget = id => cache.delete(id);
 const publicUser = u => ({ id: u.id, username: u.username, name: u.display_name, role: u.role, active: u.active,
+  stores: u.role === 'admin' ? null : (u.stores || null),   // null = every store
   createdAt: u.created_at, lastLoginAt: u.last_login_at });
+
+/* Store access: admins see every store; employees see their list (or all if none set). */
+let STORE_IDS = [];
+const setStoreIds = ids => { STORE_IDS = ids; };
+const canUseStore = (user, storeId) => user.role === 'admin' || !user.stores || user.stores.includes(storeId);
+function cleanStores(v) {
+  if (v === null) return null;
+  if (!Array.isArray(v) || !v.length) throw new HttpError(400, 'Pick at least one store');
+  const ids = [...new Set(v)];
+  if (ids.some(id => !STORE_IDS.includes(id))) throw new HttpError(400, 'Unknown store');
+  return ids.length === STORE_IDS.length ? null : ids;
+}
 
 /* First run: turn the old shared password into an "admin" account. */
 async function bootstrap() {
@@ -142,8 +155,9 @@ function userRouter() {
   r.post('/users', requireAdmin, async (req, res, next) => {
     try {
       const b = req.body || {};
-      const vals = [cleanUsername(b.username), cleanName(b.name), cleanRole(b.role || 'employee'), hashPassword(cleanPassword(b.password))];
-      const { rows } = await q(`INSERT INTO users (username, display_name, role, pw_hash) VALUES ($1,$2,$3,$4)
+      const vals = [cleanUsername(b.username), cleanName(b.name), cleanRole(b.role || 'employee'), hashPassword(cleanPassword(b.password)),
+        b.stores === undefined ? null : cleanStores(b.stores)];
+      const { rows } = await q(`INSERT INTO users (username, display_name, role, pw_hash, stores) VALUES ($1,$2,$3,$4,$5)
         ON CONFLICT (username) DO NOTHING RETURNING *`, vals);
       if (!rows[0]) throw new HttpError(409, `Username "${vals[0]}" is already taken`);
       res.json({ user: publicUser(rows[0]) });
@@ -164,6 +178,7 @@ function userRouter() {
       if (b.password !== undefined) { set('pw_hash', hashPassword(cleanPassword(b.password))); kick = true; }
       if (b.role !== undefined) { set('role', cleanRole(b.role)); kick = true; }
       if (b.active !== undefined) { set('active', !!b.active); kick = true; }
+      if (b.stores !== undefined) set('stores', cleanStores(b.stores));
       if (!sets.length) throw new HttpError(400, 'Nothing to change');
       // Never leave the shop without an active admin.
       const losingAdmin = u.role === 'admin' && u.active && (b.role === 'employee' || b.active === false);
@@ -182,4 +197,4 @@ function userRouter() {
   return r;
 }
 
-module.exports = { bootstrap, authenticate, requireAdmin, loginRouter, userRouter, HttpError, publicUser, _test: { hashPassword, checkPassword } };
+module.exports = { bootstrap, authenticate, requireAdmin, loginRouter, userRouter, HttpError, publicUser, setStoreIds, canUseStore, _test: { hashPassword, checkPassword } };

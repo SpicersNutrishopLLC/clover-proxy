@@ -9,7 +9,7 @@
  */
 const express = require('express');
 const { q, tx } = require('./db');
-const { requireAdmin, HttpError } = require('./users');
+const { requireAdmin, HttpError, canUseStore } = require('./users');
 
 function countsRouter(ctx) {
   const { STORES, storeFor, getSnapshot, fetchStoreItems, setStock, invalidate } = ctx;
@@ -17,6 +17,8 @@ function countsRouter(ctx) {
   const progress = new Map(); // count id -> {done,total}
 
   const intParam = v => { const n = Number(v); if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, 'Bad id'); return n; };
+  const allowStore = (req, storeId) => { if (!canUseStore(req.user, storeId)) throw new HttpError(403, 'You don’t have access to that store'); };
+  async function loadCountFor(req, id) { const c = await loadCount(id); allowStore(req, c.store); return c; }
   async function loadCount(id) {
     const { rows: [c] } = await q(`SELECT c.*, su.display_name AS started_name, sb.display_name AS submitted_name
       FROM counts c LEFT JOIN users su ON su.id=c.started_by LEFT JOIN users sb ON sb.id=c.submitted_by WHERE c.id=$1`, [id]);
@@ -48,7 +50,7 @@ function countsRouter(ctx) {
         FROM counts c LEFT JOIN users u ON u.id=c.started_by WHERE c.status IN ('open','submitting')`);
       const { rows: last } = await q(`SELECT DISTINCT ON (store) store, submitted_at, u.display_name AS submitted_name
         FROM counts c LEFT JOIN users u ON u.id=c.submitted_by WHERE status='submitted' ORDER BY store, submitted_at DESC`);
-      res.json({ stores: STORES.map(s => {
+      res.json({ stores: STORES.filter(s => canUseStore(req.user, s.id)).map(s => {
         const o = open.find(x => x.store === s.id), l = last.find(x => x.store === s.id);
         return { id: s.id, name: s.name,
           open: o ? { id: o.id, status: o.status, startedBy: o.started_name, startedAt: o.started_at, counted: o.counted } : null,
@@ -61,6 +63,7 @@ function countsRouter(ctx) {
   r.post('/counts', async (req, res, next) => {
     try {
       const store = storeFor(req.body?.store);
+      allowStore(req, store.id);
       const { rows: [ex] } = await q(`SELECT id FROM counts WHERE store=$1 AND status IN ('open','submitting')`, [store.id]);
       let id = ex?.id;
       if (!id) {
@@ -75,7 +78,7 @@ function countsRouter(ctx) {
   /* Count sheet: items + what's been entered so far (no Clover quantities = blind count) */
   r.get('/counts/:id', async (req, res, next) => {
     try {
-      const c = await loadCount(intParam(req.params.id));
+      const c = await loadCountFor(req, intParam(req.params.id));
       const { rows } = await q(`SELECT l.item_id, l.counted, l.counted_at, u.display_name AS by
         FROM count_lines l LEFT JOIN users u ON u.id=l.counted_by WHERE count_id=$1`, [c.id]);
       const items = c.status === 'open' ? await countableItems(c.store) : [];
@@ -95,8 +98,9 @@ function countsRouter(ctx) {
         if (l.counted !== null && (!Number.isInteger(l.counted) || l.counted < 0 || l.counted > 100000)) throw new HttpError(400, 'Counts must be whole numbers, 0 or more');
       }
       const total = await tx(async db => {
-        const { rows: [c] } = await db.query('SELECT status FROM counts WHERE id=$1 FOR UPDATE', [id]);
+        const { rows: [c] } = await db.query('SELECT status, store FROM counts WHERE id=$1 FOR UPDATE', [id]);
         if (!c) throw new HttpError(404, 'Count not found');
+        allowStore(req, c.store);
         if (c.status !== 'open') throw new HttpError(409, 'This count was already submitted or discarded');
         for (const l of lines) {
           if (l.counted === null) await db.query('DELETE FROM count_lines WHERE count_id=$1 AND item_id=$2', [id, l.itemId]);
@@ -114,7 +118,7 @@ function countsRouter(ctx) {
   /* Review before submitting: compares counts with Clover right now */
   r.get('/counts/:id/review', async (req, res, next) => {
     try {
-      const c = await loadCount(intParam(req.params.id));
+      const c = await loadCountFor(req, intParam(req.params.id));
       if (c.status !== 'open') throw new HttpError(409, 'This count is no longer open');
       const store = storeFor(c.store);
       const [fresh, items, { rows: lines }] = await Promise.all([
@@ -146,6 +150,7 @@ function countsRouter(ctx) {
   r.post('/counts/:id/submit', async (req, res, next) => {
     try {
       const id = intParam(req.params.id);
+      await loadCountFor(req, id);
       const { rows: [c] } = await q(`UPDATE counts SET status='submitting', submitted_by=$2 WHERE id=$1 AND status='open'
         AND EXISTS (SELECT 1 FROM count_lines WHERE count_id=$1) RETURNING *`, [id, req.user.id]);
       if (!c) {
@@ -159,13 +164,13 @@ function countsRouter(ctx) {
   });
 
   r.get('/counts/:id/status', async (req, res, next) => {
-    try { res.json({ count: countMeta(await loadCount(intParam(req.params.id))) }); } catch (e) { next(e); }
+    try { res.json({ count: countMeta(await loadCountFor(req, intParam(req.params.id))) }); } catch (e) { next(e); }
   });
 
   /* Throw away an open count (admin, or the person who started it) */
   r.post('/counts/:id/discard', async (req, res, next) => {
     try {
-      const c = await loadCount(intParam(req.params.id));
+      const c = await loadCountFor(req, intParam(req.params.id));
       if (req.user.role !== 'admin' && c.started_by !== req.user.id) throw new HttpError(403, 'Only an admin or the person who started this count can discard it');
       const { rowCount } = await q(`UPDATE counts SET status='discarded', submitted_by=$2, submitted_at=now() WHERE id=$1 AND status='open'`, [c.id, req.user.id]);
       if (!rowCount) throw new HttpError(409, 'This count is no longer open');
@@ -287,8 +292,10 @@ function countsRouter(ctx) {
         ORDER BY a.at DESC LIMIT 1000`, [store, String(days)]);
       res.json({ edits: rows.map(a => ({ at: a.at, by: a.by, store: a.store, itemName: a.item_name, field: a.field,
         before: a.before_val === null ? null : Number(a.before_val), after: a.after_val === null ? null : Number(a.after_val),
-        source: a.source, costChange: a.field === 'qty' && a.unit_cost !== null
-          ? (Number(a.after_val) - Number(a.before_val ?? 0)) * a.unit_cost : null })) });
+        beforeText: a.before_text, afterText: a.after_text,
+        source: a.source, costChange: a.unit_cost === null ? null
+          : a.field === 'qty' ? (Number(a.after_val) - Number(a.before_val ?? 0)) * a.unit_cost
+          : a.field === 'deleted' && a.before_val !== null ? -Math.max(Number(a.before_val), 0) * a.unit_cost : null })) });
     } catch (e) { next(e); }
   });
 

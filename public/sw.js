@@ -3,7 +3,7 @@
  *   with the last copy kept for opening the app with no signal.
  * - The scanner library and icons are cached.
  * - API calls (/api) are never cached: counts and prices must be live. */
-const CACHE = 'nsinv-v2';
+const CACHE = 'nsinv-v3';
 const SHELL = ['./', 'manifest.webmanifest', 'vendor/zxing.min.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

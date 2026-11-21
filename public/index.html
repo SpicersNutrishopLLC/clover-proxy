@@ -92,6 +92,10 @@ td:first-child{font-family:var(--body);font-size:14px;white-space:normal;min-wid
 tbody tr:hover td{background:rgba(255,255,255,.025)}
 tfoot td{font-weight:600;background:var(--bg2);color:var(--ink2)}
 .sku{display:block;font-family:var(--mono);font-size:10.5px;color:var(--ink3);margin-top:1px}
+th[data-sort]{cursor:pointer;user-select:none}
+th[data-sort]:hover{color:var(--ink)}
+th.sorted{color:var(--blue-bright)}
+th .arr{display:inline-block;width:10px;font-size:9px}
 .th-franklin{color:var(--col-franklin)!important}.th-gulch{color:var(--col-gulch)!important}.th-henderson{color:var(--col-henderson)!important}
 .nc{color:var(--border2)}
 .q0{color:var(--red)}.qlow{color:var(--amber)}
@@ -216,7 +220,17 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
       <option value="missing">Missing from a store</option>
     </select>
     <label class="note" style="display:flex;align-items:center;gap:6px">Low ≤ <input class="inp" id="lowIn" type="number" min="0" step="1" value="3" style="width:60px;padding:5px 8px"></label>
-    <button class="btn btn-ghost btn-sm" id="collapseBtn">Collapse all</button>
+    <select class="select" id="sortSel" aria-label="Sort">
+      <option value="name:1">Sort: Name A→Z</option>
+      <option value="name:-1">Sort: Name Z→A</option>
+      <option value="qty:-1">Sort: Qty high→low</option>
+      <option value="qty:1">Sort: Qty low→high</option>
+      <option value="margin:-1">Sort: Margin high→low</option>
+      <option value="margin:1">Sort: Margin low→high</option>
+      <option value="retail:-1">Sort: Retail total high→low</option>
+      <option value="custom" hidden>Sort: by column</option>
+    </select>
+    <button class="btn btn-ghost btn-sm" id="collapseBtn">Expand all</button>
     <span class="count" id="count"></span>
   </section>
 
@@ -258,8 +272,11 @@ function setPill(kind, text) { $('pill').className = 'pill ' + kind; $('pillTxt'
 const S = {
   stores: [], products: [], categories: [], syncedAt: null,
   q: '', loc: ls.get('inv.loc') || 'all', cat: '', stock: ls.get('inv.stock') || 'all', low: Number(ls.get('inv.low')) || 3,
-  collapsed: new Set(JSON.parse(ls.get('inv.collapsed') || '[]')),
+  open: new Set(readJSON('inv.open', [])),          // categories start closed
+  searchClosed: new Set(),                           // closed while a search is active
+  sort: readJSON('inv.sort', { key: 'name', dir: 1 }),
 };
+function readJSON(k, fallback) { try { return JSON.parse(ls.get(k)) ?? fallback; } catch { return fallback; } }
 const storeName = id => S.stores.find(s => s.id === id)?.name || id;
 
 /* ── Auth + API ── */
@@ -359,18 +376,62 @@ $('locSeg').addEventListener('click', e => {
   if (S.loc !== 'all' && S.stock === 'missing') { S.stock = 'all'; $('stockSel').value = 'all'; }
   buildFilters(); render();
 });
-$('q').addEventListener('input', debounce(() => { S.q = $('q').value; render(); }, 120));
+$('q').addEventListener('input', debounce(() => { S.q = $('q').value; S.searchClosed.clear(); render(); }, 120));
 $('catSel').onchange = () => { S.cat = $('catSel').value; render(); };
 $('stockSel').onchange = () => { S.stock = $('stockSel').value; ls.set('inv.stock', S.stock); render(); };
 $('lowIn').addEventListener('input', debounce(() => { const v = parseInt($('lowIn').value, 10); if (v >= 0) { S.low = v; ls.set('inv.low', v); render(); } }, 200));
 document.querySelectorAll('[data-stock]').forEach(b => b.onclick = () => { S.stock = b.dataset.stock; $('stockSel').value = S.stock; render(); });
+/* Categories start closed. While searching, matches show open so you can see them. */
+const searching = () => S.q.trim() !== '';
+const isOpen = cat => searching() ? !S.searchClosed.has(cat) : S.open.has(cat);
+function setOpen(cat, open) {
+  if (searching()) open ? S.searchClosed.delete(cat) : S.searchClosed.add(cat);
+  else { open ? S.open.add(cat) : S.open.delete(cat); ls.set('inv.open', JSON.stringify([...S.open])); }
+}
 $('collapseBtn').onclick = () => {
   const cats = [...document.querySelectorAll('.cat')].map(c => c.dataset.cat);
-  const allClosed = cats.every(c => S.collapsed.has(c));
-  cats.forEach(c => allClosed ? S.collapsed.delete(c) : S.collapsed.add(c));
-  saveCollapsed(); render();
+  const anyOpen = cats.some(isOpen);
+  cats.forEach(c => setOpen(c, !anyOpen));
+  render();
 };
-const saveCollapsed = () => ls.set('inv.collapsed', JSON.stringify([...S.collapsed]));
+
+/* Sorting (applies inside every category) */
+const SORT_DEFAULT_DIR = { name: 1 };                 // text A→Z, numbers high→low first
+function setSort(key, dir) {
+  S.sort = { key, dir: dir ?? (S.sort.key === key ? -S.sort.dir : (SORT_DEFAULT_DIR[key] ?? -1)) };
+  ls.set('inv.sort', JSON.stringify(S.sort));
+  render();
+}
+$('sortSel').onchange = () => { const [k, d] = $('sortSel').value.split(':'); setSort(k, Number(d)); };
+function sortValue({ p, st }, key) {
+  switch (key) {
+    case 'name': return null;
+    case 'price': return st.pmin;
+    case 'cost': return st.cmin;
+    case 'qty': return st.qty;
+    case 'retail': return st.retail;
+    case 'costTotal': return st.cost;
+    case 'margin': return st.margin;
+    default: { const it = p.stores[key]; return it ? (it.qty ?? 0) : null; } // a store column
+  }
+}
+function sortRows(g) {
+  const { key, dir } = S.sort;
+  return g.sort((a, b) => {
+    if (key !== 'name') {
+      const va = sortValue(a, key), vb = sortValue(b, key);
+      if (va === null && vb !== null) return 1;          // blanks always last
+      if (vb === null && va !== null) return -1;
+      if (va !== vb && va !== null) return (va - vb) * dir;
+      return a.p.name.localeCompare(b.p.name);
+    }
+    return a.p.name.localeCompare(b.p.name) * dir;
+  });
+}
+function th(label, key, cls = '', title = '') {
+  const on = S.sort.key === key;
+  return `<th data-sort="${key}" class="${cls}${on ? ' sorted' : ''}" title="${esc(title || 'Sort by ' + label.toLowerCase())}" aria-sort="${on ? (S.sort.dir > 0 ? 'ascending' : 'descending') : 'none'}">${esc(label)} <span class="arr">${on ? (S.sort.dir > 0 ? '▲' : '▼') : ''}</span></th>`;
+}
 
 /* ── View math ── */
 function viewStores() { return S.loc === 'all' ? S.stores.map(s => s.id) : [S.loc]; }
@@ -385,7 +446,8 @@ function stats(p, ids) {
     pmin = Math.min(pmin, it.price); pmax = Math.max(pmax, it.price);
     cmin = Math.min(cmin, it.cost); cmax = Math.max(cmax, it.cost);
   }
-  return { qty, retail, cost, carried, low, out, pmin, pmax, cmin, cmax };
+  const margin = carried && pmin > 0 ? (pmin - cmax) / pmin * 100 : null;
+  return { qty, retail, cost, carried, low, out, pmin, pmax, cmin, cmax, margin };
 }
 function filtered() {
   const ids = viewStores();
@@ -432,44 +494,50 @@ function render() {
 
   const groups = new Map();
   for (const r of rows) { const g = groups.get(r.p.category) || []; g.push(r); groups.set(r.p.category, g); }
-  const locTh = all ? S.stores.map(s => `<th class="th-${s.id}" title="${esc(s.name)}">${esc(s.name.slice(0, 1))}</th>`).join('') : '';
+  const locTh = all ? S.stores.map(s => th(s.name.slice(0, 1), s.id, 'th-' + s.id, `${s.name} qty — click to sort`)).join('') : '';
+  const sv = `${S.sort.key}:${S.sort.dir}`;
+  $('sortSel').value = [...$('sortSel').options].some(o => o.value === sv) ? sv : 'custom';
+  let anyOpen = false;
   const html = [];
   for (const cat of [...groups.keys()].sort()) {
-    const g = groups.get(cat);
+    const g = sortRows(groups.get(cat));
     let cq = 0, cr = 0, cc = 0;
     const body = g.map(({ p, st }) => {
       cq += st.qty; cr += st.retail; cc += st.cost;
-      const unitMargin = st.pmax > 0 ? ((st.pmin - st.cmax) / st.pmin * 100) : null;
       const sku = Object.values(p.stores)[0]?.sku;
       const locTd = all ? S.stores.map(s => `<td>${qtyCell(p.stores[s.id]?.qty ?? (p.stores[s.id] ? 0 : null))}</td>`).join('') : '';
       return `<tr><td>${esc(p.name)}<button class="edit" data-edit="${esc(p.key)}">✎ EDIT</button>${sku ? `<span class="sku">${esc(sku)}</span>` : ''}</td>
         <td>${priceCell(st.pmin, st.pmax)}</td><td class="a">${priceCell(st.cmin, st.cmax)}</td>${locTd}
         <td>${qtyCell(st.qty)}</td><td class="g">${money(st.retail)}</td><td class="a">${money(st.cost)}</td>
-        <td class="m">${unitMargin === null || !isFinite(unitMargin) ? '—' : unitMargin.toFixed(0) + '%'}</td></tr>`;
+        <td class="m">${st.margin === null ? '—' : st.margin.toFixed(0) + '%'}</td></tr>`;
     }).join('');
-    const closed = S.collapsed.has(cat);
+    const closed = !isOpen(cat);
+    if (!closed) anyOpen = true;
     html.push(`<section class="cat${closed ? ' closed' : ''}" data-cat="${esc(cat)}">
       <button class="cat-head" data-toggle aria-expanded="${!closed}">
         <span class="cat-left"><span class="chev">▶</span><span class="cat-name">${esc(cat.toUpperCase())}</span><span class="cat-n">${g.length}</span></span>
         <span class="cat-tot"><span><b>UNITS</b>${num(cq)}</span><span class="g"><b>RETAIL</b>${money(cr)}</span><span class="a"><b>COST</b>${money(cc)}</span></span>
       </button>
       ${closed ? '' : `<div class="tw"><table>
-        <thead><tr><th>ITEM</th><th>PRICE</th><th>COST</th>${locTh}<th>QTY</th><th>RETAIL TOTAL</th><th>COST TOTAL</th><th>MARGIN</th></tr></thead>
+        <thead><tr>${th('ITEM', 'name')}${th('PRICE', 'price')}${th('COST', 'cost')}${locTh}${th('QTY', 'qty')}${th('RETAIL TOTAL', 'retail')}${th('COST TOTAL', 'costTotal')}${th('MARGIN', 'margin')}</tr></thead>
         <tbody>${body}</tbody>
         <tfoot><tr><td>TOTAL</td><td></td><td></td>${all ? S.stores.map(() => '<td></td>').join('') : ''}<td>${num(cq)}</td><td class="g">${money(cr)}</td><td class="a">${money(cc)}</td><td></td></tr></tfoot>
       </table></div>`}
     </section>`);
   }
   $('main').innerHTML = html.join('');
+  $('collapseBtn').textContent = anyOpen ? 'Collapse all' : 'Expand all';
 }
 $('main').addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]');
   if (ed) { openEdit(ed.dataset.edit); return; }
+  const so = e.target.closest('[data-sort]');
+  if (so) { setSort(so.dataset.sort); return; }
   const tg = e.target.closest('[data-toggle]');
   if (tg) {
     const cat = tg.closest('.cat').dataset.cat;
-    S.collapsed.has(cat) ? S.collapsed.delete(cat) : S.collapsed.add(cat);
-    saveCollapsed(); render();
+    setOpen(cat, !isOpen(cat));
+    render();
   }
 });
 

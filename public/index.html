@@ -637,9 +637,9 @@ function render() {
       const sku = [f0.sku, ...(f0.labels || []), f0.isRevenue === false ? 'Non-revenue' : ''].filter(Boolean).join(' · ');
       const locTd = all ? S.stores.map(s => `<td>${qtyCell(p.stores[s.id]?.qty ?? (p.stores[s.id] ? 0 : null))}</td>`).join('') : '';
       return `<tr><td>${esc(p.name)}<button class="edit" data-edit="${esc(p.key)}">✎ EDIT</button>${sku ? `<span class="sku">${esc(sku)}</span>` : ''}</td>
-        <td>${priceCell(st.pmin, st.pmax)}</td><td class="a">${priceCell(st.cmin, st.cmax)}</td>${locTd}
+        <td>${priceCell(st.pmin, st.pmax)}</td><td class="a">${priceCell(st.cmin, st.cmax)}</td><td class="${st.fmin < 0 ? 'neg' : 'g'}">${profitCell(st.fmin, st.fmax)}</td>${locTd}
         <td>${qtyCell(st.qty)}</td><td class="g">${money(st.retail)}</td><td class="a">${money(st.cost)}</td>
-        <td class="${st.fmin < 0 ? 'neg' : 'g'}">${profitCell(st.fmin, st.fmax)}</td><td class="${st.profit < 0 ? 'neg' : 'g'}">${money(st.profit)}</td>
+        <td class="${st.profit < 0 ? 'neg' : 'g'}">${money(st.profit)}</td>
         <td class="m">${st.margin === null ? '—' : st.margin.toFixed(0) + '%'}</td></tr>`;
     }).join('');
     const closed = !isOpen(cat);
@@ -650,9 +650,9 @@ function render() {
         <span class="cat-tot"><span><b>UNITS</b>${num(cq)}</span><span class="g"><b>RETAIL</b>${money(cr)}</span><span class="a"><b>COST</b>${money(cc)}</span><span class="g"><b>PROFIT</b>${money(cr - cc)}</span></span>
       </button>
       ${closed ? '' : `<div class="tw"><table>
-        <thead><tr>${th('ITEM', 'name')}${th('PRICE', 'price')}${th('COST', 'cost')}${locTh}${th('QTY', 'qty')}${th('RETAIL TOTAL', 'retail')}${th('COST TOTAL', 'costTotal')}${th('PROFIT EACH', 'profit', '', 'Price minus cost, per unit sold — click to sort')}${th('PROFIT TOTAL', 'profitTotal', '', 'Retail total minus cost total for the stock on hand — click to sort')}${th('MARGIN', 'margin')}</tr></thead>
+        <thead><tr>${th('ITEM', 'name')}${th('PRICE', 'price')}${th('COST', 'cost')}${th('PROFIT EACH', 'profit', '', 'Price minus cost, per unit sold — click to sort')}${locTh}${th('QTY', 'qty')}${th('RETAIL TOTAL', 'retail')}${th('COST TOTAL', 'costTotal')}${th('PROFIT TOTAL', 'profitTotal', '', 'Retail total minus cost total for the stock on hand — click to sort')}${th('MARGIN', 'margin')}</tr></thead>
         <tbody>${body}</tbody>
-        <tfoot><tr><td>TOTAL</td><td></td><td></td>${all ? S.stores.map(() => '<td></td>').join('') : ''}<td>${num(cq)}</td><td class="g">${money(cr)}</td><td class="a">${money(cc)}</td><td></td><td class="g">${money(cr - cc)}</td><td></td></tr></tfoot>
+        <tfoot><tr><td>TOTAL</td><td></td><td></td><td></td>${all ? S.stores.map(() => '<td></td>').join('') : ''}<td>${num(cq)}</td><td class="g">${money(cr)}</td><td class="a">${money(cc)}</td><td class="g">${money(cr - cc)}</td><td></td></tr></tfoot>
       </table></div>`}
     </section>`);
   }

@@ -140,6 +140,13 @@ tr.click{cursor:pointer}
 .subtabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
 
 /* count sheet */
+.ctip{font-size:12.5px;color:var(--ink3);line-height:1.4}
+.ctip b{color:var(--ink2)}
+.cbar{position:fixed;left:0;right:0;bottom:0;z-index:35;display:flex;gap:10px;justify-content:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--bg2);border-top:1px solid var(--border2)}
+.cbar .btn{flex:1;max-width:320px;padding:14px 12px;font-size:16px}
+.nextwrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:14px 0}
+.bigbtn{padding:16px;font-size:18px}
+#countView{padding-bottom:110px}
 .ctool{position:sticky;top:64px;z-index:30;background:var(--bg);padding:10px 0;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border);margin-bottom:12px}
 .crow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .ctitle{font-family:var(--head);font-size:22px;letter-spacing:1.5px;font-weight:700}
@@ -1331,16 +1338,19 @@ function renderSheet() {
         <span class="ctitle"><span class="dot ${c.store}" style="display:inline-block"></span> ${esc(c.storeName.toUpperCase())}</span>
         <span class="saved" id="savedTxt"></span>
         <span class="note" id="cProg" style="margin-left:auto"></span>
-        <button class="btn btn-primary" data-act="review">Review &amp; submit →</button>
       </div>
+      <div class="ctip">Scan an item → type how many → <b>Save &amp; scan next</b>. Counts save by themselves. Tap <b>Finish count</b> only when the whole store is done.</div>
       <div class="crow">
         <label class="search" style="max-width:none"><span>⌕</span><input id="cq" type="search" placeholder="Search or scan a barcode…" autocomplete="off" enterkeyhint="search"></label>
         <label class="chip"><input type="checkbox" id="cUncounted"${C.onlyUncounted ? ' checked' : ''}> Uncounted only</label>
-        <button class="btn btn-primary btn-sm" data-act="camera" type="button">📷 Scan</button>
         <button class="btn btn-ghost btn-sm" data-act="expand" id="cExpand">Expand all</button>
       </div>
     </div>
-    <div id="cList"></div>`;
+    <div id="cList"></div>
+    <div class="cbar">
+      <button class="btn btn-primary" data-act="camera" type="button">📷 Scan item</button>
+      <button class="btn btn-ghost" data-act="review" type="button">Finish count →</button>
+    </div>`;
   $('cq').addEventListener('input', debounce(() => { C.q = $('cq').value; C.fromScan = false; renderList(); }, 150));
   $('cq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); scanOrJump($('cq').value.trim()); } });
   $('cUncounted').onchange = () => { C.onlyUncounted = $('cUncounted').checked; renderList(); };
@@ -1417,6 +1427,9 @@ function scanOrJump(code, fromCamera = false) {
     const it = hits[0];
     C.q = it.name; $('cq').value = it.name; renderListOnly([it]);
     C.fromScan = fromCamera;
+    $('cList').insertAdjacentHTML('beforeend', `<div class="nextwrap">
+      <button class="btn btn-green bigbtn" data-act="next" type="button">✓ Save &amp; scan next item</button>
+      <button class="btn btn-ghost" data-act="showall" type="button">Show all items</button></div>`);
     const inp = $('cList').querySelector(`.item[data-id="${CSS.escape(it.itemId)}"] [data-qty]`);
     if (inp) { inp.focus(); inp.select(); }
     return { msg: it.name, close: true };
@@ -1576,6 +1589,14 @@ $('countView').addEventListener('click', async e => {
     C.open = anyOpen ? new Set() : new Set(cats); return renderList();
   }
   if (act === 'review') return openReview();
+  if (act === 'next') {
+    document.activeElement?.blur?.();
+    flushCount().catch(() => {});
+    const v = $('cList').querySelector('[data-qty]')?.value.trim();
+    if (v) toast(`✓ Saved`, 1200);
+    return openScanner({ title: `${C.count.storeName} count`, onCode: code => scanOrJump(code, true) });
+  }
+  if (act === 'showall') { C.q = ''; $('cq').value = ''; C.fromScan = false; return renderList(); }
   if (act === 'camera') return openScanner({ title: `${C.count.storeName} count`, onCode: code => scanOrJump(code, true) });
   if (act === 'sheet') return renderSheet();
   if (act === 'submit') return submitCount();

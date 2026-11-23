@@ -470,48 +470,89 @@ function inventoryRouter() {
    * Creates the product in every store listed. Skips stores that
    * already carry an item with the same name.
    */
+  /* Check one new-product request; throws before anything touches Clover. */
+  function parseCreate(req, b) {
+    b = b || {};
+    const base = {
+      name: cleanText(b.name, 'name', 127, true),
+      sku: cleanText(b.sku, 'SKU', 64),
+      code: cleanText(b.code, 'UPC', 64),
+      category: cleanText(b.category, 'category', 64),
+      isRevenue: b.isRevenue !== false,
+      labels: cleanLabels(b.labels),
+      price: toCents(b.price ?? 0, 'price'),
+      cost: toCents(b.cost ?? 0, 'cost'),
+    };
+    const storeIds = Object.keys(b.stores || {});
+    if (!storeIds.length) throw new BadRequest('pick at least one store');
+    storeIds.forEach(id => allow(req, storeFor(id).id));
+    return { name: base.name, specs: storeIds.map(id => {
+      const o = b.stores[id] || {};
+      return {
+        store: storeFor(id),
+        spec: { ...base,
+          qty: toQty(o.qty ?? 0),
+          ...(o.price !== undefined ? { price: toCents(o.price, 'price') } : {}),
+          ...(o.cost !== undefined ? { cost: toCents(o.cost, 'cost') } : {}) },
+      };
+    }) };
+  }
+  /* Create one product in each of its stores (stores in parallel). */
+  async function runCreate(req, specs, snapshot) {
+    return Promise.all(specs.map(async ({ store, spec }) => {
+      const dupe = snapshot.products.find(p => norm(p.name) === norm(spec.name) && p.stores[store.id]);
+      if (dupe) return { store: store.id, ok: false, errors: [`${store.name} already has "${dupe.name}"`] };
+      try {
+        const r = await createInStore(store, spec, snapshot);
+        await logEdits(req.user.id, store.id, r.item.id, { name: spec.name, price: null, cost: null, qty: null },
+          { price: spec.price, cost: spec.cost, ...(r.item.qty !== null ? { qty: spec.qty } : {}) }, 'create', r.item);
+        return { store: store.id, ok: true, item: r.item, errors: r.warnings };
+      } catch (e) { return { store: store.id, ok: false, errors: [e.message] }; }
+    }));
+  }
+
+  /*
+   * POST /api/items/create
+   * { name, sku?, code?, category?, isRevenue?, labels?, price, cost,
+   *   stores: { franklin: { qty, price?, cost? }, gulch: {...}, ... } }
+   * Creates the product in every store listed. Skips stores that
+   * already carry an item with the same name.
+   */
   router.post('/items/create', async (req, res, next) => {
     try {
-      const b = req.body || {};
-      const base = {
-        name: cleanText(b.name, 'name', 127, true),
-        sku: cleanText(b.sku, 'SKU', 64),
-        code: cleanText(b.code, 'UPC', 64),
-        category: cleanText(b.category, 'category', 64),
-        isRevenue: b.isRevenue !== false,
-        labels: cleanLabels(b.labels),
-        price: toCents(b.price ?? 0, 'price'),
-        cost: toCents(b.cost ?? 0, 'cost'),
-      };
-      const storeIds = Object.keys(b.stores || {});
-      if (!storeIds.length) throw new BadRequest('pick at least one store');
-      storeIds.forEach(id => allow(req, storeFor(id).id));
-      const specs = storeIds.map(id => {
-        const o = b.stores[id] || {};
-        return {
-          store: storeFor(id),
-          spec: { ...base,
-            qty: toQty(o.qty ?? 0),
-            ...(o.price !== undefined ? { price: toCents(o.price, 'price') } : {}),
-            ...(o.cost !== undefined ? { cost: toCents(o.cost, 'cost') } : {}) },
-        };
-      });
+      const { specs } = parseCreate(req, req.body);
       const snapshot = await getSnapshot(true); // fresh check for duplicates
-      const results = await Promise.all(specs.map(async ({ store, spec }) => {
-        const dupe = snapshot.products.find(p => norm(p.name) === norm(spec.name) && p.stores[store.id]);
-        if (dupe) return { store: store.id, ok: false, errors: [`${store.name} already has "${dupe.name}"`] };
-        try {
-          const r = await createInStore(store, spec, snapshot);
-          await logEdits(req.user.id, store.id, r.item.id, { name: spec.name, price: null, cost: null, qty: null },
-            { price: spec.price, cost: spec.cost, ...(r.item.qty !== null ? { qty: spec.qty } : {}) }, 'create', r.item);
-          return { store: store.id, ok: true, item: r.item, errors: r.warnings };
-        } catch (e) { return { store: store.id, ok: false, errors: [e.message] }; }
-      }));
+      const results = await runCreate(req, specs, snapshot);
       invalidate();
       res.json({ results });
     } catch (e) { next(e); }
   });
 
+  /*
+   * POST /api/items/create-batch
+   * { items: [ <same body as /items/create>, ... ] }  (up to 30, e.g. every flavor of a new product)
+   * Everything is checked first; then products are created one after another.
+   */
+  router.post('/items/create-batch', async (req, res, next) => {
+    try {
+      const items = req.body?.items;
+      if (!Array.isArray(items) || !items.length || items.length > 30) throw new BadRequest('add between 1 and 30 products');
+      const parsed = items.map((b, i) => {
+        try { return parseCreate(req, b); }
+        catch (e) { throw new BadRequest(`Product ${i + 1}${b?.name ? ` (“${String(b.name).trim()}”)` : ''}: ${e.message}`); }
+      });
+      const seen = new Set();
+      for (const p of parsed) {
+        if (seen.has(norm(p.name))) throw new BadRequest(`“${p.name}” is listed twice — each flavor needs its own name`);
+        seen.add(norm(p.name));
+      }
+      const snapshot = await getSnapshot(true);
+      const products = [];
+      for (const p of parsed) products.push({ name: p.name, results: await runCreate(req, p.specs, snapshot) });
+      invalidate();
+      res.json({ products });
+    } catch (e) { next(e); }
+  });
 
   /*
    * POST /api/items/details

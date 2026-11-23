@@ -679,7 +679,7 @@ function closeModal() { if (modalBusy) return; $('overlay').hidden = true; $('mo
 $('overlay').addEventListener('mousedown', e => { if (e.target === $('overlay')) closeModal(); });
 $('modal').addEventListener('click', e => { if (e.target.closest('[data-close]')) closeModal(); });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && !$('overlay').hidden) closeModal();
+  if (e.key === 'Escape' && !$('overlay').hidden && $('scanOverlay').hidden) closeModal();
   if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && $('overlay').hidden && !$('appView').hidden && !$('filters').hidden) { e.preventDefault(); $('q').focus(); }
 });
 function setStatus(msg, kind = '') { const s = $('mStatus'); if (s) { s.textContent = msg; s.className = 'status ' + kind; } }
@@ -744,7 +744,7 @@ function openEdit(key) {
         <div class="note" style="margin-top:8px">Only changed fields are sent to Clover (outlined in amber). Tick a store that doesn’t carry this item to add it there.</div>
       </div>
     </div>
-    <div class="mfoot"><button class="btn btn-ghost btn-sm" id="delBtn" style="color:var(--red)">🗑 Delete…</button><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="saveBtn">Save to Clover</button></div>`);
+    <div class="mfoot"><button class="btn btn-ghost btn-sm" id="delBtn" style="color:var(--red)">🗑 Delete…</button><button class="btn btn-ghost btn-sm" id="flavorBtn" title="Create a new flavor of this product">⧉ Add flavor</button><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="saveBtn">Save to Clover</button></div>`);
 
   const m = $('modal');
   wireLabelPicker('d', () => touch('labels'));
@@ -754,6 +754,7 @@ function openEdit(key) {
   $('dCode').addEventListener('input', () => touch('code'));
   $('dRev').addEventListener('change', () => touch('isRevenue'));
   $('delBtn').onclick = () => openDelete(p);
+  $('flavorBtn').onclick = () => openAddFlavor(p);
   m.querySelectorAll('[name=add]').forEach(cb => cb.onchange = () => {
     cb.closest('tr').querySelectorAll('.inp').forEach(i => i.disabled = !cb.checked);
     markChanged();
@@ -961,107 +962,197 @@ function openDelete(p) {
 }
 
 /* ── New product ── */
-function openNew() {
-  const rows = S.stores.map(s => `<tr data-store="${s.id}">
-      <td><label class="sname"><input type="checkbox" name="on" checked><span class="dot ${s.id}"></span>${esc(s.name)}</label><span class="note" data-dupe></span></td>
-      <td><input class="inp" name="qty" type="number" step="1" value="0"></td>
-      <td><input class="inp" name="price" type="number" min="0" step="0.01" placeholder="same"></td>
-      <td><input class="inp" name="cost" type="number" min="0" step="0.01" placeholder="same"></td>
-    </tr>`).join('');
+/* prefill (optional): { name, category, price, cost (cents), isRevenue, labels, stores: [ids], storePrices: {id:{price,cost}} } */
+function openNew(prefill = null) {
+  const pf = prefill || {};
+  const onStores = new Set(pf.stores || S.stores.map(s => s.id));
+  const dollars = c => c === undefined || c === null ? '' : (c / 100).toFixed(2);
+  const storeRows = S.stores.map(s => {
+    const sp = pf.storePrices?.[s.id];
+    const diffP = sp && sp.price !== pf.price, diffC = sp && sp.cost !== pf.cost;
+    return `<tr data-store="${s.id}">
+      <td><label class="sname"><input type="checkbox" name="on"${onStores.has(s.id) ? ' checked' : ''}><span class="dot ${s.id}"></span>${esc(s.name)}</label></td>
+      <td><input class="inp" name="price" type="number" min="0" step="0.01" placeholder="same" value="${diffP ? dollars(sp.price) : ''}"></td>
+      <td><input class="inp" name="cost" type="number" min="0" step="0.01" placeholder="same" value="${diffC ? dollars(sp.cost) : ''}"></td>
+    </tr>`;
+  }).join('');
   openModal(`
-    <div class="mhead"><div><div class="mtitle">NEW PRODUCT</div><div class="msub">Creates the item in Clover at the stores you pick</div></div><button class="x" data-close aria-label="Close">✕</button></div>
+    <div class="mhead"><div><div class="mtitle">${prefill ? 'ADD FLAVOR' : 'NEW PRODUCT'}</div><div class="msub">One row per flavor or size. Everything above the rows is shared by all of them.</div></div><button class="x" data-close aria-label="Close">✕</button></div>
     <div class="mbody">
       <div class="grid2">
-        <div class="field full"><label for="nName">Product name *</label><input class="inp text" id="nName" maxlength="127" autocomplete="off"></div>
-        <div class="field"><label for="nCatSel">Category</label>${categoryPicker('n', '')}</div>
-        <div class="field"><label for="nSku">SKU</label><input class="inp" id="nSku" maxlength="64" autocomplete="off"></div>
-        <div class="field"><label for="nPrice">Retail price $ *</label><input class="inp" id="nPrice" type="number" min="0" step="0.01"></div>
-        <div class="field"><label for="nCost">Cost $ *</label><input class="inp" id="nCost" type="number" min="0" step="0.01"></div>
-        <div class="field"><label for="nCode">UPC / barcode</label><input class="inp" id="nCode" maxlength="64" autocomplete="off"></div>
-        <div class="field"><label>Revenue</label><label class="chip"><input type="checkbox" id="nRev" checked> Revenue item (counts toward sales)</label></div>
-        <div class="field full"><label>Labels</label>${labelPicker('n', [])}</div>
+        <div class="field"><label for="nCatSel">Category</label>${categoryPicker('n', pf.category || '')}</div>
+        <div class="field"><label>Revenue</label><label class="chip"><input type="checkbox" id="nRev"${pf.isRevenue === false ? '' : ' checked'}> Revenue item (counts toward sales)</label></div>
+        <div class="field"><label for="nPrice">Retail price $ *</label><input class="inp" id="nPrice" type="number" min="0" step="0.01" value="${dollars(pf.price)}"></div>
+        <div class="field"><label for="nCost">Cost $ *</label><input class="inp" id="nCost" type="number" min="0" step="0.01" value="${dollars(pf.cost)}"></div>
+        <div class="field full"><label>Labels</label>${labelPicker('n', pf.labels || [])}</div>
+      </div>
+      <div>
+        <div class="sect-t">FLAVORS / PRODUCTS</div>
+        <div style="overflow-x:auto"><table class="stores" id="nItems">
+          <thead><tr><th>NAME *</th><th>SKU</th><th>UPC / BARCODE</th>${S.stores.map(s => `<th data-qcol="${s.id}" title="Starting quantity at ${esc(s.name)}"><span class="dot ${s.id}" style="display:inline-block"></span> ${esc(s.name.slice(0, 1))} QTY</th>`).join('')}<th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <button class="btn btn-ghost btn-sm" type="button" id="nAddRow" style="margin-top:8px">+ Add flavor</button>
+        <span class="note" style="margin-left:8px">Copies the last row; just change the flavor and scan or type its barcode.</span>
       </div>
       <div>
         <div class="sect-t" style="display:flex;justify-content:space-between;align-items:center">STORES
           <span><button class="btn btn-ghost btn-sm" type="button" data-pick="all">All</button> <button class="btn btn-ghost btn-sm" type="button" data-pick="none">None</button></span></div>
-        <div style="overflow-x:auto"><table class="stores">
-          <thead><tr><th>STORE</th><th>STARTING QTY</th><th>PRICE $</th><th>COST $</th></tr></thead>
-          <tbody>${rows}</tbody>
+        <div style="overflow-x:auto"><table class="stores" id="nStores">
+          <thead><tr><th>STORE</th><th>PRICE $</th><th>COST $</th></tr></thead>
+          <tbody>${storeRows}</tbody>
         </table></div>
         <div class="note" style="margin-top:8px">Leave a store’s price or cost blank to use the main price above.</div>
       </div>
     </div>
     <div class="mfoot"><span class="status" id="mStatus"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-green" id="createBtn">Create in Clover</button></div>`);
+  $('modal').style.maxWidth = '960px';
   const m = $('modal');
-  const checkDupes = () => {
-    const n = norm($('nName').value);
-    const hit = n && S.products.find(p => norm(p.name) === n);
-    m.querySelectorAll('tbody tr').forEach(tr => {
-      const has = hit && hit.stores[tr.dataset.store];
-      const cb = tr.querySelector('[name=on]');
-      cb.disabled = !!has; if (has) cb.checked = false;
-      tr.querySelector('[data-dupe]').textContent = has ? ' already carried' : '';
-      tr.querySelectorAll('.inp').forEach(i => i.disabled = !cb.checked);
-    });
-  };
-  $('nName').addEventListener('input', debounce(checkDupes, 150));
-  m.querySelectorAll('[name=on]').forEach(cb => cb.onchange = checkDupes);
+  addFlavorRow({ name: pf.name || '' });
+  m.querySelectorAll('#nStores [name=on]').forEach(cb => cb.onchange = syncNewForm);
   m.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
-    m.querySelectorAll('[name=on]').forEach(cb => { if (!cb.disabled) cb.checked = b.dataset.pick === 'all'; });
-    checkDupes();
+    m.querySelectorAll('#nStores [name=on]').forEach(cb => { cb.checked = b.dataset.pick === 'all'; });
+    syncNewForm();
   });
+  $('nAddRow').onclick = () => {
+    const rows = m.querySelectorAll('#nItems tbody tr');
+    addFlavorRow(rowValues(rows[rows.length - 1]), true);
+  };
+  m.querySelector('#nItems tbody').addEventListener('click', e => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    if (e.target.closest('[data-rdup]')) return addFlavorRow(rowValues(tr), true, tr);
+    if (e.target.closest('[data-rdel]')) {
+      if (m.querySelectorAll('#nItems tbody tr').length > 1) { tr.remove(); syncNewForm(); }
+      return;
+    }
+    if (e.target.closest('[data-rscan]')) {
+      return openScanner({ title: 'Scan this flavor’s barcode', onCode: code => {
+        tr.querySelector('[name=sku]').value = code; tr.querySelector('[name=code]').value = code;
+        tr.querySelector('[name=name]').focus();
+      } });
+    }
+  });
+  m.querySelector('#nItems tbody').addEventListener('input', debounce(syncNewForm, 150));
   wireLabelPicker('n', () => {});
   wireCategoryPicker('n', () => {});
-  $('createBtn').onclick = createProduct;
-  $('nName').focus();
+  $('createBtn').onclick = createProducts;
+  syncNewForm();
+  const first = m.querySelector('#nItems [name=name]'); first.focus();
+  if (prefill) first.setSelectionRange(first.value.length, first.value.length);
 }
-async function createProduct() {
+function rowValues(tr) {
+  const v = { name: tr.querySelector('[name=name]').value, qty: {} };
+  tr.querySelectorAll('[data-qty-store]').forEach(i => { v.qty[i.dataset.qtyStore] = i.value; });
+  return v;
+}
+/* Adds a flavor row. When copying, SKU/UPC start blank (every flavor has its own barcode). */
+function addFlavorRow(v = {}, focus = false, after = null) {
+  const tbody = $('modal').querySelector('#nItems tbody');
+  tbody.insertAdjacentHTML('beforeend', `<tr>
+    <td style="min-width:220px"><input class="inp text" name="name" maxlength="127" autocomplete="off" placeholder="e.g. Brand Pre-Workout Blue Razz" value="${esc(v.name || '')}"><span class="note" data-rdupe style="display:block"></span></td>
+    <td><input class="inp" name="sku" maxlength="64" autocomplete="off" style="min-width:110px"></td>
+    <td><input class="inp" name="code" maxlength="64" autocomplete="off" inputmode="numeric" style="min-width:130px"></td>
+    ${S.stores.map(s => `<td><input class="inp" data-qty-store="${s.id}" type="number" step="1" value="${esc(v.qty?.[s.id] ?? '0')}" style="min-width:64px;width:70px"></td>`).join('')}
+    <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" type="button" data-rscan title="Scan barcode into SKU and UPC">📷</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-rdup title="Copy this row">⧉</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-rdel title="Remove this row" style="color:var(--red)">✕</button></td>
+  </tr>`);
+  const tr = tbody.lastElementChild;
+  if (after) after.after(tr);
+  syncNewForm();
+  if (focus) { const n = tr.querySelector('[name=name]'); n.focus(); n.select(); }
+  return tr;
+}
+/* Greys out quantities for unticked stores and flags names that already exist. */
+function syncNewForm() {
+  const m = $('modal'); if (!m.querySelector('#nItems')) return;
+  const on = new Set([...m.querySelectorAll('#nStores tr[data-store]')].filter(tr => tr.querySelector('[name=on]').checked).map(tr => tr.dataset.store));
+  m.querySelectorAll('#nStores tr[data-store]').forEach(tr => tr.querySelectorAll('.inp').forEach(i => { i.disabled = !on.has(tr.dataset.store); }));
+  m.querySelectorAll('[data-qty-store]').forEach(i => { i.disabled = !on.has(i.dataset.qtyStore); });
+  m.querySelectorAll('[data-qcol]').forEach(th => { th.style.opacity = on.has(th.dataset.qcol) ? '' : '.35'; });
+  const rows = [...m.querySelectorAll('#nItems tbody tr')];
+  const names = rows.map(tr => norm(tr.querySelector('[name=name]').value));
+  rows.forEach((tr, i) => {
+    const n = names[i], warn = [];
+    if (n && names.indexOf(n) !== i) warn.push('same name as another row');
+    if (tr.dataset.retry) warn.unshift(`Still to create at: ${tr.dataset.retry.split(',').map(storeName).join(', ')}`);
+    else { const hit = n && S.products.find(p => norm(p.name) === n);
+      const at = hit ? S.stores.filter(s => hit.stores[s.id] && on.has(s.id)).map(s => s.name) : [];
+      if (at.length) warn.push(`already at ${at.join(', ')} (skipped there)`); }
+    const el = tr.querySelector('[data-rdupe]'); el.textContent = warn.join(' · '); el.style.color = warn.length ? 'var(--amber)' : '';
+  });
+  $('nAddRow').hidden = rows.length >= 30;
+}
+async function createProducts() {
   const m = $('modal');
-  const name = $('nName').value.trim();
-  $('nName').classList.toggle('bad', !name);
   const price = readNum($('nPrice')), cost = readNum($('nCost'));
-  const stores = {};
-  let bad = !name || !price.ok || !cost.ok;
-  m.querySelectorAll('tbody tr').forEach(tr => {
+  let bad = !price.ok || !cost.ok;
+  const storeOpts = {};
+  m.querySelectorAll('#nStores tr[data-store]').forEach(tr => {
     if (!tr.querySelector('[name=on]').checked) return;
-    const q = readNum(tr.querySelector('[name=qty]'), { integer: true });
-    const o = { qty: q.value };
+    const o = {};
     for (const f of ['price', 'cost']) {
       const el = tr.querySelector(`[name=${f}]`);
       if (el.value.trim() === '') { el.classList.remove('bad'); continue; }
       const r = readNum(el); if (!r.ok) bad = true; else o[f] = r.value;
     }
-    if (!q.ok) bad = true;
-    stores[tr.dataset.store] = o;
+    storeOpts[tr.dataset.store] = o;
   });
-  if (bad) { setStatus('Fix the highlighted fields.', 'bad'); return; }
-  if (!Object.keys(stores).length) { setStatus('Pick at least one store.', 'bad'); return; }
+  if (!Object.keys(storeOpts).length) return setStatus('Pick at least one store.', 'bad');
+  const category = readCategory('n');
+  if ($('nCatSel').value === '__new' && !category) { $('nCatNew').classList.add('bad'); return setStatus('Type a name for the new category.', 'bad'); }
+  const rows = [...m.querySelectorAll('#nItems tbody tr')];
+  const seen = new Set();
+  const items = rows.map(tr => {
+    const nameEl = tr.querySelector('[name=name]'), name = nameEl.value.trim();
+    const dup = !name || seen.has(norm(name)); seen.add(norm(name));
+    nameEl.classList.toggle('bad', dup); if (dup) bad = true;
+    const stores = {};
+    const only = tr.dataset.retry ? new Set(tr.dataset.retry.split(',')) : null;   // after a partial failure, only redo the stores that failed
+    for (const id of Object.keys(storeOpts)) {
+      if (only && !only.has(id)) continue;
+      const q = readNum(tr.querySelector(`[data-qty-store="${id}"]`), { integer: true });
+      if (!q.ok) bad = true;
+      stores[id] = { ...storeOpts[id], qty: q.value };
+    }
+    return { tr, body: { name, sku: tr.querySelector('[name=sku]').value.trim(), code: tr.querySelector('[name=code]').value.trim(),
+      category, isRevenue: $('nRev').checked, labels: pickedLabels('n'), price: price.value, cost: cost.value, stores } };
+  });
+  if (bad) return setStatus('Fix the highlighted fields (every row needs its own name).', 'bad');
 
   const btn = $('createBtn'); btn.disabled = true; btn.textContent = 'Creating…'; modalBusy = true;
-  setStatus('Creating in Clover…');
-  const category = readCategory('n');
-  if ($('nCatSel').value === '__new' && !category) { $('nCatNew').classList.add('bad'); setStatus('Type a name for the new category.', 'bad'); btn.disabled = false; btn.textContent = 'Create in Clover'; modalBusy = false; return; }
+  setStatus(`Creating ${items.length} product${items.length > 1 ? 's' : ''} in Clover…`);
   try {
-    const r = await api('/items/create', { method: 'POST', body: {
-      name, category, sku: $('nSku').value.trim(), code: $('nCode').value.trim(),
-      isRevenue: $('nRev').checked, labels: pickedLabels('n'),
-      price: price.value, cost: cost.value, stores } });
+    const r = await api('/items/create-batch', { method: 'POST', body: { items: items.map(i => i.body) } });
     modalBusy = false;
-    const ok = r.results.filter(x => x.ok), errs = r.results.filter(x => x.errors?.length);
-    if (ok.length) {
-      let p = S.products.find(x => norm(x.name) === norm(name));
-      if (!p) { p = { key: 'new:' + norm(name) + ':' + Date.now(), name, category: category || 'Uncategorized', stores: {} }; S.products.push(p); S.products.sort((a, b) => a.name.localeCompare(b.name)); }
-      ok.forEach(x => { p.stores[x.store] = x.item; });
-      if (category && !S.categories.includes(category)) S.categories.push(category);
-      pickedLabels('n').forEach(l => { if (!S.labels.includes(l)) S.labels.push(l); });
-      indexProduct(p); buildFilters(); render();
-    }
-    if (errs.length) {
-      setStatus((ok.length ? `Created at ${ok.map(x => storeName(x.store)).join(', ')}. ` : '') + 'Problems — ' + errs.map(x => `${storeName(x.store)}: ${x.errors.join('; ')}`).join(' · '), ok.length ? 'warn' : 'bad');
-      btn.disabled = false; btn.textContent = 'Create in Clover';
-      if (ok.length) btn.hidden = true;
+    const problems = [], made = [];
+    r.products.forEach((prod, i) => {
+      const ok = prod.results.filter(x => x.ok), errs = prod.results.filter(x => x.errors?.length);
+      if (ok.length) {
+        let p = S.products.find(x => norm(x.name) === norm(prod.name));
+        if (!p) { p = { key: 'new:' + norm(prod.name) + ':' + Date.now() + i, name: prod.name, category: category || 'Uncategorized', stores: {} }; S.products.push(p); }
+        ok.forEach(x => { p.stores[x.store] = x.item; });
+        indexProduct(p); made.push(prod.name);
+      }
+      errs.forEach(x => problems.push(`${prod.name} @ ${storeName(x.store)}: ${x.errors.join('; ')}`));
+      const failed = prod.results.filter(x => !x.ok).map(x => x.store);
+      if (!failed.length) items[i].tr.remove();     // fully done: drop the row so a retry only resends the rest
+      else {
+        items[i].tr.dataset.retry = failed.join(',');
+        const note = items[i].tr.querySelector('[data-rdupe]');
+        note.textContent = `Still to create at: ${failed.map(storeName).join(', ')}`; note.style.color = 'var(--amber)';
+      }
+    });
+    S.products.sort((a, b) => a.name.localeCompare(b.name));
+    if (category && !S.categories.includes(category)) S.categories.push(category);
+    pickedLabels('n').forEach(l => { if (!S.labels.includes(l)) S.labels.push(l); });
+    buildFilters(); render();
+    btn.disabled = false; btn.textContent = 'Create in Clover';
+    if (problems.length) {
+      setStatus((made.length ? `Created: ${made.join(', ')}. ` : '') + 'Problems — ' + problems.join(' · '), made.length ? 'warn' : 'bad');
+      if (!$('modal').querySelector('#nItems tbody tr')) btn.hidden = true;
     } else {
-      toast(`✅ Created ${name} at ${ok.map(x => storeName(x.store)).join(', ')}`);
+      toast(`✅ Created ${made.length} product${made.length > 1 ? 's' : ''}: ${made.join(', ')}`, 6000);
       closeModal();
     }
   } catch (err) {
@@ -1069,6 +1160,15 @@ async function createProduct() {
     if (err instanceof SignedOut) return;
     setStatus(err.message, 'bad'); btn.disabled = false; btn.textContent = 'Create in Clover';
   }
+}
+/* From an existing product: open "Add flavor" with its shared details filled in. */
+function openAddFlavor(p) {
+  const its = S.stores.filter(s => p.stores[s.id]).map(s => [s.id, p.stores[s.id]]);
+  const f0 = its[0][1];
+  closeModal();
+  openNew({ name: p.name + ' ', category: p.category === 'Uncategorized' ? '' : p.category, price: f0.price, cost: f0.cost,
+    isRevenue: f0.isRevenue !== false, labels: f0.labels || [], stores: its.map(([id]) => id),
+    storePrices: Object.fromEntries(its.map(([id, it]) => [id, { price: it.price, cost: it.cost }])) });
 }
 
 /* ── CSV (exports what's on screen) ── */
@@ -1104,7 +1204,7 @@ function exportCSV() {
 
 $('csvBtn').onclick = exportCSV;
 $('invScan').onclick = () => openScanner({ title: 'Find a product', onCode: inventoryScan });
-$('newBtn').onclick = openNew;
+$('newBtn').onclick = () => openNew();
 $('syncBtn').onclick = () => sync(true);
 
 /* ════════════════ Shared helpers for the pages below ════════════════ */
@@ -1420,7 +1520,7 @@ async function openScanner({ title, onCode }) {
   } catch (e) { $('scanMsg').textContent = cameraError(e); $('scanMsg').className = 'scan-msg bad'; }
 }
 async function closeScanner() {
-  $('scanOverlay').hidden = true; document.body.style.overflow = '';
+  $('scanOverlay').hidden = true; document.body.style.overflow = $('overlay').hidden ? '' : 'hidden';
   clearTimeout(SCAN.timer);
   if (SCAN.stream) SCAN.stream.getTracks().forEach(t => t.stop());
   SCAN.stream = null;
@@ -1449,7 +1549,12 @@ function inventoryScan(code) {
     return;
   }
   confirmBox('Not in Clover yet', `<p>No product has barcode <b>${esc(code)}</b>${S.stores.length < 3 ? ' at your stores' : ''}.</p><p class="note" style="margin-top:6px">Create a new product with this barcode?</p>`, 'Create product', 'btn-green')
-    .then(ok => { if (!ok) return; openNew(); $('nCode').value = code; $('nSku').value = code; $('nName').focus(); });
+    .then(ok => {
+      if (!ok) return;
+      openNew();
+      const tr = $('modal').querySelector('#nItems tbody tr');
+      tr.querySelector('[name=code]').value = code; tr.querySelector('[name=sku]').value = code; tr.querySelector('[name=name]').focus();
+    });
 }
 
 $('countView').addEventListener('click', async e => {

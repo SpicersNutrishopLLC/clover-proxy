@@ -299,6 +299,7 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
     <div class="tcard"><div class="tlabel">UNITS</div><div class="tval" id="tQty">—</div></div>
     <div class="tcard"><div class="tlabel">RETAIL VALUE</div><div class="tval green" id="tRetail">—</div></div>
     <div class="tcard"><div class="tlabel">COST VALUE</div><div class="tval amber" id="tCost">—</div></div>
+    <div class="tcard"><div class="tlabel">GROSS PROFIT</div><div class="tval green" id="tProfit">—</div></div>
     <div class="tcard"><div class="tlabel">GROSS MARGIN</div><div class="tval green" id="tMargin">—</div></div>
     <button class="tcard" data-stock="low" title="Show low stock"><div class="tlabel">LOW STOCK</div><div class="tval amber" id="tLow">—</div></button>
     <button class="tcard" data-stock="out" title="Show out of stock"><div class="tlabel">OUT OF STOCK</div><div class="tval red" id="tOut">—</div></button>
@@ -322,6 +323,8 @@ input[type=checkbox]{accent-color:var(--blue);width:16px;height:16px}
       <option value="name:-1">Sort: Name Z→A</option>
       <option value="qty:-1">Sort: Qty high→low</option>
       <option value="qty:1">Sort: Qty low→high</option>
+      <option value="profit:-1">Sort: Profit each high→low</option>
+      <option value="profitTotal:-1">Sort: Profit total high→low</option>
       <option value="margin:-1">Sort: Margin high→low</option>
       <option value="margin:1">Sort: Margin low→high</option>
       <option value="retail:-1">Sort: Retail total high→low</option>
@@ -531,6 +534,8 @@ function sortValue({ p, st }, key) {
     case 'retail': return st.retail;
     case 'costTotal': return st.cost;
     case 'margin': return st.margin;
+    case 'profit': return st.carried ? st.fmin : null;
+    case 'profitTotal': return st.profit;
     default: { const it = p.stores[key]; return it ? (it.qty ?? 0) : null; } // a store column
   }
 }
@@ -555,7 +560,7 @@ function th(label, key, cls = '', title = '') {
 /* ── View math ── */
 function viewStores() { return S.loc === 'all' ? S.stores.map(s => s.id) : [S.loc]; }
 function stats(p, ids) {
-  let qty = 0, retail = 0, cost = 0, carried = 0, low = false, out = false, pmin = Infinity, pmax = -Infinity, cmin = Infinity, cmax = -Infinity;
+  let qty = 0, retail = 0, cost = 0, carried = 0, low = false, out = false, pmin = Infinity, pmax = -Infinity, cmin = Infinity, cmax = -Infinity, fmin = Infinity, fmax = -Infinity;
   for (const id of ids) {
     const it = p.stores[id]; if (!it) continue;
     carried++;
@@ -564,9 +569,10 @@ function stats(p, ids) {
     if (q <= 0) out = true; else if (q <= S.low) low = true;
     pmin = Math.min(pmin, it.price); pmax = Math.max(pmax, it.price);
     cmin = Math.min(cmin, it.cost); cmax = Math.max(cmax, it.cost);
+    fmin = Math.min(fmin, it.price - it.cost); fmax = Math.max(fmax, it.price - it.cost);   // profit per unit at this store
   }
   const margin = carried && pmin > 0 ? (pmin - cmax) / pmin * 100 : null;
-  return { qty, retail, cost, carried, low, out, pmin, pmax, cmin, cmax, margin };
+  return { qty, retail, cost, carried, low, out, pmin, pmax, cmin, cmax, margin, fmin, fmax, profit: retail - cost };
 }
 function filtered() {
   const ids = viewStores();
@@ -587,6 +593,9 @@ function filtered() {
 }
 
 /* ── Render ── */
+function profitCell(min, max) {
+  return min === max ? money(min) : `<span class="vary" title="Differs by store">${money(min)}–${money(max)}</span>`;
+}
 function priceCell(min, max) {
   return min === max ? money(min) : `<span class="vary" title="Differs by store">${money(min)}–${money(max)}</span>`;
 }
@@ -605,6 +614,7 @@ function render() {
   $('tQty').textContent = num(tq);
   $('tRetail').textContent = money(tr);
   $('tCost').textContent = money(tc);
+  $('tProfit').textContent = money(tr - tc);
   $('tMargin').textContent = tr > 0 ? ((tr - tc) / tr * 100).toFixed(1) + '%' : '—';
   $('tLow').textContent = num(tl); $('tOut').textContent = num(to);
   $('count').textContent = `${num(rows.length)} of ${num(S.products.length)} products`;
@@ -629,6 +639,7 @@ function render() {
       return `<tr><td>${esc(p.name)}<button class="edit" data-edit="${esc(p.key)}">✎ EDIT</button>${sku ? `<span class="sku">${esc(sku)}</span>` : ''}</td>
         <td>${priceCell(st.pmin, st.pmax)}</td><td class="a">${priceCell(st.cmin, st.cmax)}</td>${locTd}
         <td>${qtyCell(st.qty)}</td><td class="g">${money(st.retail)}</td><td class="a">${money(st.cost)}</td>
+        <td class="${st.fmin < 0 ? 'neg' : 'g'}">${profitCell(st.fmin, st.fmax)}</td><td class="${st.profit < 0 ? 'neg' : 'g'}">${money(st.profit)}</td>
         <td class="m">${st.margin === null ? '—' : st.margin.toFixed(0) + '%'}</td></tr>`;
     }).join('');
     const closed = !isOpen(cat);
@@ -636,12 +647,12 @@ function render() {
     html.push(`<section class="cat${closed ? ' closed' : ''}" data-cat="${esc(cat)}">
       <button class="cat-head" data-toggle aria-expanded="${!closed}">
         <span class="cat-left"><span class="chev">▶</span><span class="cat-name">${esc(cat.toUpperCase())}</span><span class="cat-n">${g.length}</span></span>
-        <span class="cat-tot"><span><b>UNITS</b>${num(cq)}</span><span class="g"><b>RETAIL</b>${money(cr)}</span><span class="a"><b>COST</b>${money(cc)}</span></span>
+        <span class="cat-tot"><span><b>UNITS</b>${num(cq)}</span><span class="g"><b>RETAIL</b>${money(cr)}</span><span class="a"><b>COST</b>${money(cc)}</span><span class="g"><b>PROFIT</b>${money(cr - cc)}</span></span>
       </button>
       ${closed ? '' : `<div class="tw"><table>
-        <thead><tr>${th('ITEM', 'name')}${th('PRICE', 'price')}${th('COST', 'cost')}${locTh}${th('QTY', 'qty')}${th('RETAIL TOTAL', 'retail')}${th('COST TOTAL', 'costTotal')}${th('MARGIN', 'margin')}</tr></thead>
+        <thead><tr>${th('ITEM', 'name')}${th('PRICE', 'price')}${th('COST', 'cost')}${locTh}${th('QTY', 'qty')}${th('RETAIL TOTAL', 'retail')}${th('COST TOTAL', 'costTotal')}${th('PROFIT EACH', 'profit', '', 'Price minus cost, per unit sold — click to sort')}${th('PROFIT TOTAL', 'profitTotal', '', 'Retail total minus cost total for the stock on hand — click to sort')}${th('MARGIN', 'margin')}</tr></thead>
         <tbody>${body}</tbody>
-        <tfoot><tr><td>TOTAL</td><td></td><td></td>${all ? S.stores.map(() => '<td></td>').join('') : ''}<td>${num(cq)}</td><td class="g">${money(cr)}</td><td class="a">${money(cc)}</td><td></td></tr></tfoot>
+        <tfoot><tr><td>TOTAL</td><td></td><td></td>${all ? S.stores.map(() => '<td></td>').join('') : ''}<td>${num(cq)}</td><td class="g">${money(cr)}</td><td class="a">${money(cc)}</td><td></td><td class="g">${money(cr - cc)}</td><td></td></tr></tfoot>
       </table></div>`}
     </section>`);
   }
@@ -1044,7 +1055,7 @@ function exportCSV() {
   const d = c => (c / 100).toFixed(2);
   const head = ['Category', 'Item', 'SKU', 'UPC', 'Revenue item', 'Labels',
     ...S.stores.flatMap(s => [`${s.name} Price`, `${s.name} Cost`, `${s.name} Qty`]),
-    'Total Qty', 'Retail Total', 'Cost Total'];
+    'Total Qty', 'Retail Total', 'Cost Total', 'Profit Each', 'Profit Total'];
   const lines = [head.map(csvCell).join(',')];
   const ids = S.stores.map(s => s.id);
   for (const { p } of rows) {
@@ -1052,7 +1063,7 @@ function exportCSV() {
     const first = Object.values(p.stores)[0] || {};
     lines.push([p.category, p.name, first.sku, first.code, first.isRevenue === false ? 'No' : 'Yes', (first.labels || []).join('; '),
       ...S.stores.flatMap(s => { const it = p.stores[s.id]; return it ? [d(it.price), d(it.cost), it.qty ?? 0] : ['', '', '']; }),
-      st.qty, d(st.retail), d(st.cost)].map(csvCell).join(','));
+      st.qty, d(st.retail), d(st.cost), st.fmin === st.fmax ? d(st.fmin) : `${d(st.fmin)}–${d(st.fmax)}`, d(st.profit)].map(csvCell).join(','));
   }
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');

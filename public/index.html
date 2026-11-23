@@ -720,13 +720,12 @@ function openEdit(key) {
       <div>
         <div class="sect-t">DETAILS — EVERY STORE THAT CARRIES IT${detailsVary(p) ? ' <span class="varies">(currently differs between stores — showing ' + esc(storeName(Object.keys(p.stores)[0])) + ')</span>' : ''}</div>
         <div class="grid2">
-          <div class="field" data-df="category"><label for="dCat">Category</label><input class="inp text" id="dCat" list="catList" autocomplete="off" value="${esc(p.category === 'Uncategorized' ? '' : p.category)}" placeholder="Pick or type a new one"></div>
+          <div class="field" data-df="category"><label for="dCatSel">Category</label>${categoryPicker('d', p.category === 'Uncategorized' ? '' : p.category)}</div>
           <div class="field" data-df="sku"><label for="dSku">SKU</label><input class="inp" id="dSku" maxlength="64" autocomplete="off" value="${esc(first.sku)}"></div>
           <div class="field" data-df="code"><label for="dCode">UPC / barcode</label><input class="inp" id="dCode" maxlength="64" autocomplete="off" value="${esc(first.code)}"></div>
           <div class="field" data-df="isRevenue"><label>Revenue</label><label class="chip"><input type="checkbox" id="dRev"${first.isRevenue !== false ? ' checked' : ''}> Revenue item (counts toward sales)</label></div>
           <div class="field full" data-df="labels"><label>Labels</label>${labelPicker('d', first.labels || [])}</div>
         </div>
-        <datalist id="catList">${S.categories.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
       </div>
       <div>
         <div class="sect-t">SET FOR EVERY STORE</div>
@@ -750,7 +749,7 @@ function openEdit(key) {
   const m = $('modal');
   wireLabelPicker('d', () => touch('labels'));
   const touch = f => m.querySelector(`[data-df="${f}"]`).classList.add('changed');
-  $('dCat').addEventListener('input', () => touch('category'));
+  wireCategoryPicker('d', () => touch('category'));
   $('dSku').addEventListener('input', () => touch('sku'));
   $('dCode').addEventListener('input', () => touch('code'));
   $('dRev').addEventListener('change', () => touch('isRevenue'));
@@ -806,7 +805,10 @@ async function saveEdit() {
   if (bad) { setStatus('Fill in every highlighted box (prices can’t be blank or negative).', 'bad'); return; }
   const touched = f => m.querySelector(`[data-df="${f}"]`).classList.contains('changed');
   const details = {};
-  if (touched('category')) details.category = $('dCat').value.trim();
+  if (touched('category')) {
+    if ($('dCatSel').value === '__new' && !readCategory('d')) { $('dCatNew').classList.add('bad'); setStatus('Type a name for the new category.', 'bad'); return; }
+    details.category = readCategory('d');
+  }
   if (touched('sku')) details.sku = $('dSku').value.trim();
   if (touched('code')) details.code = $('dCode').value.trim();
   if (touched('isRevenue')) details.isRevenue = $('dRev').checked;
@@ -874,6 +876,30 @@ function openEditKeepStatus(p) {
   const msg = $('mStatus').textContent, cls = $('mStatus').className;
   openEdit(p.key);
   $('mStatus').textContent = msg; $('mStatus').className = cls;
+}
+
+/* ── Category picker: every category in a dropdown, plus "+ New category…" ── */
+function categoryPicker(prefix, current) {
+  const cats = [...new Set([...S.categories, ...(current ? [current] : [])])].sort((a, b) => a.localeCompare(b));
+  return `<select class="inp text" id="${prefix}CatSel">
+      <option value=""${current ? '' : ' selected'}>— No category —</option>
+      ${cats.map(c => `<option value="${esc(c)}"${norm(c) === norm(current) ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+      <option value="__new">+ New category…</option>
+    </select>
+    <input class="inp text" id="${prefix}CatNew" maxlength="64" autocomplete="off" placeholder="New category name" hidden style="margin-top:6px">`;
+}
+function wireCategoryPicker(prefix, onChange) {
+  const sel = $(prefix + 'CatSel'), inp = $(prefix + 'CatNew');
+  sel.addEventListener('change', () => {
+    inp.hidden = sel.value !== '__new';
+    if (!inp.hidden) inp.focus();
+    onChange();
+  });
+  inp.addEventListener('input', onChange);
+}
+function readCategory(prefix) {
+  const sel = $(prefix + 'CatSel');
+  return sel.value === '__new' ? $(prefix + 'CatNew').value.trim() : sel.value;
 }
 
 /* ── Labels picker (shared by edit + new product) ── */
@@ -947,7 +973,7 @@ function openNew() {
     <div class="mbody">
       <div class="grid2">
         <div class="field full"><label for="nName">Product name *</label><input class="inp text" id="nName" maxlength="127" autocomplete="off"></div>
-        <div class="field"><label for="nCat">Category</label><input class="inp text" id="nCat" list="catList" autocomplete="off" placeholder="Pick or type a new one"><datalist id="catList">${S.categories.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="field"><label for="nCatSel">Category</label>${categoryPicker('n', '')}</div>
         <div class="field"><label for="nSku">SKU</label><input class="inp" id="nSku" maxlength="64" autocomplete="off"></div>
         <div class="field"><label for="nPrice">Retail price $ *</label><input class="inp" id="nPrice" type="number" min="0" step="0.01"></div>
         <div class="field"><label for="nCost">Cost $ *</label><input class="inp" id="nCost" type="number" min="0" step="0.01"></div>
@@ -985,6 +1011,7 @@ function openNew() {
     checkDupes();
   });
   wireLabelPicker('n', () => {});
+  wireCategoryPicker('n', () => {});
   $('createBtn').onclick = createProduct;
   $('nName').focus();
 }
@@ -1012,7 +1039,8 @@ async function createProduct() {
 
   const btn = $('createBtn'); btn.disabled = true; btn.textContent = 'Creating…'; modalBusy = true;
   setStatus('Creating in Clover…');
-  const category = $('nCat').value.trim();
+  const category = readCategory('n');
+  if ($('nCatSel').value === '__new' && !category) { $('nCatNew').classList.add('bad'); setStatus('Type a name for the new category.', 'bad'); btn.disabled = false; btn.textContent = 'Create in Clover'; modalBusy = false; return; }
   try {
     const r = await api('/items/create', { method: 'POST', body: {
       name, category, sku: $('nSku').value.trim(), code: $('nCode').value.trim(),

@@ -278,14 +278,23 @@ async function ensureNamed(store, kind, name, snapshot) {
 }
 const ensureCategory = (store, name, snapshot) => ensureNamed(store, 'categories', name, snapshot);
 
+/* Clover replies 200 even when it ignores a link request, so read the item back to confirm. */
+async function itemLinks(store, itemId, kind) {
+  const it = await clover(store, 'GET', `/v3/merchants/${store.merchant}/items/${itemId}`, { query: { expand: kind } });
+  return (it[kind]?.elements || []).map(x => x.id);
+}
 async function linkCategory(store, itemId, catId, remove) {
   await clover(store, 'POST', `/v3/merchants/${store.merchant}/category_items`,
-    { query: remove ? { delete: 'true' } : undefined, body: { elems: [{ category: { id: catId }, item: { id: itemId } }] } });
+    { query: remove ? { delete: 'true' } : undefined, body: { elements: [{ category: { id: catId }, item: { id: itemId } }] } });
+  const has = (await itemLinks(store, itemId, 'categories')).includes(catId);
+  if (has === !!remove) throw new Error(`Clover didn’t ${remove ? 'remove' : 'save'} the category`);
 }
 async function linkTags(store, itemId, tagIds, remove) {
   if (!tagIds.length) return;
   await clover(store, 'POST', `/v3/merchants/${store.merchant}/tag_items`,
-    { query: remove ? { delete: 'true' } : undefined, body: { elems: tagIds.map(id => ({ tag: { id }, item: { id: itemId } })) } });
+    { query: remove ? { delete: 'true' } : undefined, body: { elements: tagIds.map(id => ({ tag: { id }, item: { id: itemId } })) } });
+  const now = new Set(await itemLinks(store, itemId, 'tags'));
+  if (tagIds.some(id => now.has(id) === !!remove)) throw new Error(`Clover didn’t ${remove ? 'remove' : 'save'} the labels`);
 }
 
 async function createInStore(store, spec, snapshot) {

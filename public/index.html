@@ -703,7 +703,14 @@ const centsOf = d => Math.round(d * 100);
 
 /* ── Edit product ── */
 let editing = null;
-function openEdit(key) {
+async function openEdit(key) {
+  if (S.syncedAt && Date.now() - S.syncedAt.getTime() > STALE_MS) {
+    const name = S.products.find(x => x.key === key)?.name;
+    await sync(true);
+    const fresh = S.products.find(x => norm(x.name) === norm(name));
+    if (!fresh) return toast('That product is no longer in Clover.');
+    key = fresh.key;
+  }
   const p = S.products.find(x => x.key === key); if (!p) return;
   editing = p;
   const first = Object.values(p.stores)[0];
@@ -1944,6 +1951,17 @@ async function boot() {
   }
   startApp(me);
 }
+/* ── Never work from old data: refresh inventory when the app comes back after a while ── */
+const STALE_MS = 5 * 60e3;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !ME || !isAdmin() || !S.loaded || $('appView').hidden) return;
+  if (!S.syncedAt || Date.now() - S.syncedAt.getTime() > STALE_MS) { if ($('overlay').hidden) sync(true); }
+});
+setInterval(() => {
+  if (!document.hidden && ME && isAdmin() && S.loaded && !$('appView').hidden && $('overlay').hidden
+      && S.syncedAt && Date.now() - S.syncedAt.getTime() > 15 * 60e3) sync(true);
+}, 60e3);
+
 /* ── Install as an app ── */
 let deferredInstall = null;
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;

@@ -90,6 +90,8 @@ async function clover(store, method, path, { query, body } = {}) {
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch { data = { message: text.slice(0, 200) }; }
     if (!res.ok) {
+      // Record failed saves so problems can be diagnosed later (no tokens are logged).
+      if (method !== 'GET') console.warn(`[clover] ${store.name}: ${method} ${path.replace(/^\/v3\/merchants\/[^/]+/, '')}${url.search} → ${res.status} ${String(data.message || data.error || text).slice(0, 300)}`);
       const err = new Error(data.message || data.error || `Clover HTTP ${res.status}`);
       err.status = res.status;
       throw err;
